@@ -1,165 +1,182 @@
 {# templates/index.html #}
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Media Viewer</title>
-    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
-    <style>
-        body {
-            margin: 0;
-            padding: 0;
-            background-color: #000;
-            font-family: Arial, sans-serif;
-            height: 100vh;
-            overflow: hidden;
-        }
-        
-        .container {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            width: 100vw;
-            padding: 20px;
-            box-sizing: border-box;
-        }
-        
-        #media-container {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            width: 100%;
-            height: 100%;
-            min-height: 50vh; /* Minimum height */
-            min-width: 50vw;   /* Minimum width */
-        }
-        
-        #media-container img, 
-        #media-container video {
-            max-width: 90vw;    /* Limit to 90% of viewport width */
-            max-height: 90vh;   /* Limit to 90% of viewport height */
-            min-width: 300px;    /* Minimum width for small images */
-            min-height: 300px;   /* Minimum height for small images */
-            width: auto;
-            height: auto;
-            object-fit: contain;
-            object-position: center;
-            border-radius: 8px;
-            box-shadow: 0 4px 20px rgba(255, 255, 255, 0.1);
-        }
-        
-        #media-container video {
-            outline: none;
-            min-width: 400px;    /* Videos should be larger */
-            min-height: 300px;
-        }
-        
-        #media-container p {
-            color: #888;
-            font-size: 18px;
-            text-align: center;
-            padding: 20px;
-            min-height: 300px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        
-        .upload-link {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            background: rgba(255, 255, 255, 0.1);
-            color: #fff;
-            padding: 10px 20px;
-            border-radius: 20px;
-            text-decoration: none;
-            backdrop-filter: blur(10px);
-            transition: background 0.3s ease;
-            z-index: 1000;
-        }
-        
-        .upload-link:hover {
-            background: rgba(255, 255, 255, 0.2);
-        }
-    </style>
-    <script>
-        // Global variables
-        let currentRefreshInterval = 1000;
-        let shouldAutoClose = false;
-        
-        // Check URL parameters on load
-        function checkUrlParameters() {
-            const urlParams = new URLSearchParams(window.location.search);
-            shouldAutoClose = urlParams.get('ws') === 'true';
-            console.log('Auto-close enabled:', shouldAutoClose);
-        }
-        
-        // Function to update refresh interval
-        function updateRefreshInterval(newInterval) {
-            if (newInterval !== currentRefreshInterval) {
-                currentRefreshInterval = newInterval;
-                const container = document.getElementById('media-container');
-                if (container) {
-                    container.setAttribute('hx-trigger', 'every ' + newInterval + 'ms');
-                    htmx.process(container);
-                }
-            }
-        }
-        
-        // Handle video end event - close window if auto-close enabled
-        function onVideoEnd() {
-            console.log("Video ended");
-            if (shouldAutoClose) {
-                window.close();
-            }
-        }
-        
-        // Handle video play event
-        function onVideoPlay() {
-            console.log("Video started playing");
-        }
-        
-        // Handle image display - close window after delay if auto-close enabled
-        function onImageDisplay() {
-            if (shouldAutoClose) {
-                // Close window after 5 seconds for images
-                setTimeout(() => {
-                    console.log("Closing window after image display");
-                    window.close();
-                }, 5000);
-            }
-        }
-        
-        // Initialize
-        document.addEventListener('DOMContentLoaded', function() {
-            checkUrlParameters();
-            updateRefreshInterval(1000);
-        });
-    </script>
-</head>
-<body>
-    <div class="container">
-        <div id="media-container" hx-get="/last-media" hx-trigger="load then every 1s" hx-swap="innerHTML">
-            <p>Loading...</p>
+    <head>
+        <meta charset="UTF-8">
+        <title>Media Viewer</title>
+        <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+        <style>
+         body {
+             margin: 0;
+             padding: 0;
+             background-color: #000;
+             font-family: Arial, sans-serif;
+             height: 100vh;
+             overflow: hidden;
+         }
+         
+         .container {
+             display: flex;
+             justify-content: center;
+             align-items: center;
+             height: 100vh;
+             width: 100vw;
+             padding: 20px;
+             box-sizing: border-box;
+         }
+         
+         #media-container {
+             display: flex;
+             justify-content: center;
+             align-items: center;
+             width: 100%;
+             height: 100%;
+             min-height: 50vh; /* Minimum height */
+             min-width: 50vw;   /* Minimum width */
+         }
+         
+         #media-container img, 
+         #media-container video {
+             max-width: 90vw;    /* Limit to 90% of viewport width */
+             max-height: 90vh;   /* Limit to 90% of viewport height */
+             min-width: 300px;    /* Minimum width for small images */
+             min-height: 300px;   /* Minimum height for small images */
+             width: auto;
+             height: auto;
+             object-fit: contain;
+             object-position: center;
+             border-radius: 8px;
+             box-shadow: 0 4px 20px rgba(255, 255, 255, 0.1);
+         }
+         
+         #media-container video {
+             outline: none;
+             min-width: 400px;    /* Videos should be larger */
+             min-height: 300px;
+         }
+         
+         #media-container p {
+             color: #888;
+             font-size: 18px;
+             text-align: center;
+             padding: 20px;
+             min-height: 300px;
+             display: flex;
+             align-items: center;
+             justify-content: center;
+         }
+         
+         .upload-link {
+             position: fixed;
+             bottom: 20px;
+             right: 20px;
+             background: rgba(255, 255, 255, 0.1);
+             color: #fff;
+             padding: 10px 20px;
+             border-radius: 20px;
+             text-decoration: none;
+             backdrop-filter: blur(10px);
+             transition: background 0.3s ease;
+             z-index: 1000;
+         }
+         
+         .upload-link:hover {
+             background: rgba(255, 255, 255, 0.2);
+         }
+        </style>
+        <script>
+         // Global variables
+         let currentRefreshInterval = 1000;
+         let shouldAutoClose = false;
+         let refreshTimer = null;
+         let autoCloseTimer = null;
+         
+         // Check URL parameters on load
+         function checkUrlParameters() {
+             const urlParams = new URLSearchParams(window.location.search);
+             shouldAutoClose = urlParams.get('ws') === 'true';
+             console.log('Auto-close enabled:', shouldAutoClose);
+         }
+         
+         // Function to update refresh interval
+         function updateRefreshInterval(newInterval) {
+             console.log('Setting refresh interval to:', newInterval, 'ms');
+             
+             // Clear existing timer
+             if (refreshTimer) {
+                 clearTimeout(refreshTimer);
+                 refreshTimer = null;
+             }
+             
+             // Set new timer only for reasonable intervals
+             if (newInterval > 0 && newInterval < 999999) {
+                 refreshTimer = setTimeout(() => {
+                     console.log('Refreshing content...');
+                     const container = document.getElementById('media-container');
+                     if (container) {
+                         // Trigger HTMX refresh event
+                         htmx.trigger(container, 'refresh');
+                     }
+                 }, newInterval);
+             }
+         }
+         
+         // Function to handle auto-close timing
+         function setupAutoClose(durationMs) {
+             if (shouldAutoClose && durationMs > 0) {
+                 console.log('Setting up auto-close for', durationMs, 'ms');
+                 // Clear existing auto-close timer
+                 if (autoCloseTimer) {
+                     clearTimeout(autoCloseTimer);
+                 }
+                 // Set new auto-close timer
+                 autoCloseTimer = setTimeout(() => {
+                     console.log('Auto-closing window after', durationMs, 'ms');
+                     window.close();
+                 }, durationMs);
+             }
+         }
+         
+         // Handle video end event - close window if auto-close enabled
+         function onVideoEnd() {
+             console.log("Video ended");
+             if (shouldAutoClose) {
+                 window.close();
+             }
+         }
+         
+         // Handle video play event
+         function onVideoPlay() {
+             console.log("Video started playing");
+         }
+         
+         // Initialize
+         document.addEventListener('DOMContentLoaded', function() {
+             checkUrlParameters();
+         });
+        </script>
+    </head>
+    <body>
+        <div class="container">
+            <div id="media-container" hx-get="/last-media" hx-trigger="load, refresh" hx-swap="innerHTML">
+                <p>Loading...</p>
+            </div>
         </div>
-    </div>
-    <a href="/upload" class="upload-link">Upload</a>
-    
-    <script>
-        // Add image display handler
-        document.addEventListener('htmx:afterSettle', function(evt) {
-            // Check if we just loaded an image
-            const container = document.getElementById('media-container');
-            if (container) {
-                const img = container.querySelector('img');
-                if (img) {
-                    // Image was loaded
-                    onImageDisplay();
-                }
-            }
-        });
-    </script>
-</body>
+        <a href="/upload" class="upload-link">Upload</a>
+        
+        <script>
+         // Add image display handler
+         document.addEventListener('htmx:afterSettle', function(evt) {
+             // Check if we just loaded an image
+             const container = document.getElementById('media-container');
+             if (container) {
+                 const img = container.querySelector('img');
+                 if (img) {
+                     // Image was loaded
+                     onImageDisplay();
+                 }
+             }
+         });
+        </script>
+    </body>
 </html>

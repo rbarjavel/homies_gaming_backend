@@ -8,6 +8,8 @@ pub struct MediaInfo {
     pub media_type: MediaType,
     pub upload_time: SystemTime,
     pub marked_for_deletion: bool,
+    pub duration_secs: u64,
+    pub caption: String,
 }
 
 #[derive(Clone, Debug)]
