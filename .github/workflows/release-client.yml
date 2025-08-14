@@ -1,0 +1,35 @@
+name: Build and Release Go Client
+
+on:
+  push:
+    tags:
+      - 'client-v*'
+
+jobs:
+  build:
+    name: Build Go Client
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+
+      - name: Build release binaries
+        run: |
+          cd client
+          make release
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            client/bin/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
