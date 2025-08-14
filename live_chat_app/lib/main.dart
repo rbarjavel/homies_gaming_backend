@@ -48,28 +48,30 @@ class _MyHomePageState extends State<MyHomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Text('LIVE CHAT UPLOADER'),
-            _image == null
-                ? const Text('Aucune image sélectionnée.')
-                : Image.file(_image!),
-            if (_image != null)
-              ElevatedButton(
-                onPressed: () async {
-                  if (_image != null) {
-                    bool success = await NetworkManager.uploadImage(_image!);
-                    if (success) {
-                      print('Upload réussi !');
-                    } else {
-                      print('Upload a échoué.');
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: <Widget>[
+              const Text('LIVE CHAT UPLOADER'),
+              _image == null
+                  ? const Text('Aucune image sélectionnée.')
+                  : Image.file(_image!),
+              if (_image != null)
+                ElevatedButton(
+                  onPressed: () async {
+                    if (_image != null) {
+                      bool success = await NetworkManager.uploadImage(_image!);
+                      if (success) {
+                        print('Upload réussi !');
+                      } else {
+                        print('Upload a échoué.');
+                      }
                     }
-                  }
-                },
-                child: Text("Upload"),
-              ),
-          ],
+                  },
+                  child: Text("Upload"),
+                ),
+            ],
+          ),
         ),
       ),
       floatingActionButton: FloatingActionButton(
