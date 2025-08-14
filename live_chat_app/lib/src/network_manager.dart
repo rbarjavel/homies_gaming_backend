@@ -3,9 +3,8 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart';
 
-const url = 'http://70.0.0.118:3030/upload';
-
 class NetworkManager {
+  static String url = 'http://70.0.0.118:3030/upload';
   static Future<bool> uploadImage(File imageFile) async {
     final uri = Uri.parse(url);
     final request = http.MultipartRequest('POST', uri);

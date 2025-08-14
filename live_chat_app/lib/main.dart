@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:live_chat_app/src/network_manager.dart';
+import 'package:shake/shake.dart';
 
 void main() {
   runApp(const MyApp());
@@ -14,6 +15,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Flutter Demo',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
       ),
@@ -35,6 +37,20 @@ class _MyHomePageState extends State<MyHomePage> {
   File? _image;
   final ImagePicker _picker = ImagePicker();
 
+  late ShakeDetector detector;
+
+  @override
+  void initState() {
+    super.initState();
+    detector = ShakeDetector.autoStart(
+      onPhoneShake: (ShakeEvent event) {
+        print('OK');
+        // TODO: spawn bottomsheet to change address
+      },
+      shakeThresholdGravity: 1.5,
+    );
+  }
+
   Future<void> _pickImage() async {
     final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
     if (image != null) {
@@ -47,40 +63,73 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Center(
-        child: SingleChildScrollView(
+      backgroundColor: Colors.black38,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
             children: <Widget>[
-              const Text('LIVE CHAT UPLOADER'),
-              _image == null
-                  ? const Text('Aucune image sélectionnée.')
-                  : Image.file(_image!),
+              const Center(
+                child: Text(
+                  'LIVE CHAT UPLOADER',
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              if (_image == null)
+                const Text(
+                  'Aucune image sélectionnée.',
+                  style: TextStyle(color: Colors.white),
+                )
+              else
+                Expanded(
+                  child: Center(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.all(Radius.circular(14)),
+                        image: DecorationImage(
+                          image: Image.file(_image!).image,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               if (_image != null)
-                ElevatedButton(
-                  onPressed: () async {
-                    if (_image != null) {
-                      bool success = await NetworkManager.uploadImage(_image!);
-                      if (success) {
-                        print('Upload réussi !');
-                      } else {
-                        print('Upload a échoué.');
+                Padding(
+                  padding: const EdgeInsets.only(top: 20.0),
+                  child: ElevatedButton(
+                    style: ButtonStyle(
+                      backgroundColor: WidgetStateProperty.all(Colors.amber),
+                    ),
+                    onPressed: () async {
+                      if (_image != null) {
+                        bool success = await NetworkManager.uploadImage(
+                          _image!,
+                        );
+                        if (success) {
+                          print('Upload réussi !');
+                        } else {
+                          print('Upload a échoué.');
+                        }
                       }
-                    }
-                  },
-                  child: Text("Upload"),
+                    },
+                    child: const Text("Upload", style: TextStyle(fontSize: 16)),
+                  ),
                 ),
             ],
           ),
         ),
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () async {
-          await _pickImage();
-        },
+        backgroundColor: Colors.amber,
+        onPressed: _pickImage,
         tooltip: 'Upload image',
         child: const Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
+      ),
     );
   }
 }
