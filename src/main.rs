@@ -43,9 +43,17 @@ async fn main() {
         .and(warp::path("upload"))
         .and(warp::multipart::form().max_length(100 * 1024 * 1024)) // 100MB limit
         .and(warp::addr::remote())
-        .and(with_state(media_state_upload))
-        .and(with_ws_state(ws_clients_upload)) // Add WebSocket state
+        .and(with_state(media_state_upload.clone()))
+        .and(with_ws_state(ws_clients_upload.clone())) // Add WebSocket state
         .and_then(handlers::upload::upload_image);
+
+    let upload_sound_route = warp::post()
+        .and(warp::path("upload-sound"))
+        .and(warp::multipart::form().max_length(50 * 1024 * 1024)) // 50MB limit for sounds
+        .and(warp::addr::remote())
+        .and(with_state(media_state_upload.clone()))
+        .and(with_ws_state(ws_clients_upload.clone())) // Add WebSocket state
+        .and_then(handlers::upload::upload_sound);
 
     // Media routes
     let last_media_route = warp::get()
@@ -64,14 +72,17 @@ async fn main() {
 
     // Serve uploaded files
     let uploads_dir = warp::path("uploads").and(warp::fs::dir("uploads/"));
+    let sounds_dir = warp::path("sounds").and(warp::fs::dir("sounds/"));
 
     // Combine all routes
     let routes = index_route
         .or(upload_form_route)
+        .or(upload_sound_route)
         .or(upload_route)
         .or(last_media_route)
         .or(ws_route) // Add WebSocket route
-        .or(uploads_dir);
+        .or(uploads_dir)
+        .or(sounds_dir);
 
     println!("Server running on http://0.0.0.0:3030");
     warp::serve(routes).run(([0, 0, 0, 0], 3030)).await;

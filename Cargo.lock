@@ -350,6 +350,7 @@ dependencies = [
  "askama",
  "bytes",
  "futures-util",
+ "percent-encoding",
  "serde",
  "serde_json",
  "thiserror",

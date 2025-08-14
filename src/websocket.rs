@@ -1,6 +1,10 @@
+use percent_encoding::percent_encode;
+use percent_encoding::{AsciiSet, CONTROLS, utf8_percent_encode};
 use serde_json::json;
 use std::sync::Arc;
 use tokio::sync::{RwLock, broadcast};
+
+const FRAGMENT: &AsciiSet = &CONTROLS.add(b' ').add(b'"').add(b'<').add(b'>').add(b'`');
 
 // Use warp's Message type consistently
 pub type WsClients = Arc<RwLock<broadcast::Sender<warp::ws::Message>>>;
@@ -25,9 +29,10 @@ pub async fn broadcast_new_media(clients: &WsClients) {
 }
 
 pub async fn broadcast_new_song(clients: &WsClients, uri: String) {
+    let encoded_uri = utf8_percent_encode(&uri, FRAGMENT).to_string();
     let message_json = json!({
         "event": "song",
-        "url": uri + "?ws=true"
+        "url": format!("/sounds/{}?ws=true", encoded_uri)
     });
 
     let message_string = message_json.to_string();

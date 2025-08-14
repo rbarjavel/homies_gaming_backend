@@ -120,10 +120,12 @@
  }
 </style>
 <div class="upload-container">
-    <div class="upload-form">
-        <form hx-post="/upload" hx-encoding="multipart/form-data" hx-target="#result">
+    <!-- Media Upload Section -->
+    <div class="upload-section">
+        <h2 class="section-title">Upload Image/Video</h2>
+        <form hx-post="/upload" hx-encoding="multipart/form-data" hx-target="#media-result">
             <div class="form-group">
-                <label for="image">Choose file:</label>
+                <label for="image">Choose image or video:</label>
                 <input type="file" id="image" name="image" accept="image/*,video/*" required />
             </div>
             
@@ -137,14 +139,33 @@
                 <textarea id="caption" name="caption" placeholder="Add a description or caption..."></textarea>
             </div>
             
-            <button type="submit">Upload</button>
+            <button type="submit">Upload Media</button>
             
             <div class="help-text">
                 Maximum file size: 100MB<br/>
                 Images: 1-60 seconds, Videos: play full duration
             </div>
         </form>
-        <div id="result"></div>
+        <div id="media-result" class="result"></div>
+    </div>
+    
+    <!-- Sound Upload Section -->
+    <div class="upload-section">
+        <h2 class="section-title">Upload Sound</h2>
+        <form hx-post="/upload-sound" hx-encoding="multipart/form-data" hx-target="#sound-result">
+            <div class="form-group">
+                <label for="sound">Choose sound file:</label>
+                <input type="file" id="sound" name="sound" accept="audio/*" required />
+            </div>
+            
+            <button type="submit">Upload Sound</button>
+            
+            <div class="help-text">
+                Maximum file size: 50MB<br/>
+                Supported formats: MP3, WAV, OGG, FLAC, M4A
+            </div>
+        </form>
+        <div id="sound-result" class="result"></div>
     </div>
 </div>
 {% endblock %}

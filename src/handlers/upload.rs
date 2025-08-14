@@ -1,6 +1,6 @@
 use crate::{
     errors::AppError,
-    state::{MediaInfo, MediaType, MediaViewState},
+    state::{MediaInfo, MediaType, MediaViewState, SoundInfo},
     templates::UploadTemplate,
 };
 use askama::Template;
@@ -261,6 +261,117 @@ fn is_valid_media_type(filename: &str) -> bool {
         "jpg" | "jpeg" | "png" | "gif" | "webp" | "bmp" | "tiff" | "svg" => true,
         // Videos
         "mp4" | "mov" | "avi" | "webm" | "ogg" | "mkv" | "wmv" | "flv" | "m4v" => true,
+        _ => false,
+    }
+}
+
+pub async fn upload_sound(
+    mut form: FormData,
+    _addr: Option<std::net::SocketAddr>,
+    state: SharedState,
+    ws_clients: websocket::WsClients,
+) -> Result<impl Reply, Rejection> {
+    let mut original_filename = String::new();
+    let mut file_data = Vec::new();
+
+    // Process the stream directly without collecting
+    while let Some(result) = form.next().await {
+        match result {
+            Ok(mut field) => {
+                match field.name() {
+                    "sound" => {
+                        // Get filename
+                        original_filename = field.filename().unwrap_or("unnamed").to_string();
+
+                        // Validate sound file type
+                        if !is_valid_sound_type(&original_filename) {
+                            return Ok(warp::reply::html(
+                                "<p>Invalid sound file type! Only MP3, WAV, and OGG files are allowed.</p>".to_string(),
+                            ));
+                        }
+
+                        // Collect file data
+                        while let Some(chunk_result) = field.data().await {
+                            match chunk_result {
+                                Ok(mut chunk) => {
+                                    let bytes = chunk.copy_to_bytes(chunk.remaining());
+                                    file_data.extend_from_slice(&bytes);
+                                }
+                                Err(e) => {
+                                    tracing::error!("Failed to read sound file data: {}", e);
+                                    return Err(warp::reject::custom(AppError::MultipartError));
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Err(e) => {
+                tracing::error!("Failed to read field: {}", e);
+                return Err(warp::reject::custom(AppError::MultipartError));
+            }
+        }
+    }
+
+    // Only proceed if we have a filename
+    if !original_filename.is_empty() {
+        // Check file size limit (50MB for sounds)
+        if file_data.len() > 50 * 1024 * 1024 {
+            return Ok(warp::reply::html(
+                "<p>Sound file too large! Maximum size is 50MB.</p>".to_string(),
+            ));
+        }
+
+        // Save sound file to disk
+        let file_path = format!("sounds/{}", original_filename);
+
+        // Create directory
+        tokio::fs::create_dir_all("sounds").await.map_err(|e| {
+            tracing::error!("Failed to create sounds directory: {}", e);
+            warp::reject::custom(AppError::IoError(e))
+        })?;
+
+        // Create file
+        let mut file = File::create(&file_path).await.map_err(|e| {
+            tracing::error!("Failed to create sound file: {}", e);
+            warp::reject::custom(AppError::IoError(e))
+        })?;
+
+        // Write file data
+        file.write_all(&file_data).await.map_err(|e| {
+            tracing::error!("Failed to write sound file: {}", e);
+            warp::reject::custom(AppError::IoError(e))
+        })?;
+
+        // Update shared state with new sound
+        let sound_info = SoundInfo {
+            filename: original_filename.clone(),
+            upload_time: std::time::SystemTime::now(),
+            marked_for_deletion: false,
+        };
+
+        let mut state = state.write().await;
+        state.set_last_sound(sound_info);
+        tracing::info!("New sound uploaded: {}", original_filename);
+        websocket::broadcast_new_song(&ws_clients, original_filename.clone()).await;
+
+        return Ok(warp::reply::html(format!(
+            r#"<p>Sound {} uploaded successfully!</p>"#,
+            original_filename
+        )));
+    }
+
+    Ok(warp::reply::html(
+        "<p>No sound file uploaded!</p>".to_string(),
+    ))
+}
+
+// Add sound type validation
+fn is_valid_sound_type(filename: &str) -> bool {
+    let ext = filename.split('.').last().unwrap_or("").to_lowercase();
+    match ext.as_str() {
+        "mp3" | "wav" | "ogg" | "flac" | "m4a" => true,
         _ => false,
     }
 }

@@ -13,6 +13,13 @@ pub struct MediaInfo {
 }
 
 #[derive(Clone, Debug)]
+pub struct SoundInfo {
+    pub filename: String,
+    pub upload_time: SystemTime,
+    pub marked_for_deletion: bool,
+}
+
+#[derive(Clone, Debug)]
 pub enum MediaType {
     Image,
     Video,
@@ -20,6 +27,7 @@ pub enum MediaType {
 
 pub struct MediaViewState {
     last_media: Option<MediaInfo>,
+    last_sound: Option<SoundInfo>,               // Add this line
     viewed_by: HashMap<String, HashSet<IpAddr>>, // filename -> set of IPs that viewed it
 }
 
@@ -27,6 +35,7 @@ impl MediaViewState {
     pub fn new() -> Self {
         Self {
             last_media: None,
+            last_sound: None, // Initialize sound field
             viewed_by: HashMap::new(),
         }
     }
@@ -74,18 +83,6 @@ impl MediaViewState {
         }
     }
 
-    // Completely remove file from state (for re-upload)
-    pub fn remove_file_from_state(&mut self, filename: &str) {
-        // Remove from last_media if it matches
-        if let Some(media) = &self.last_media {
-            if media.filename == filename {
-                self.last_media = None;
-            }
-        }
-        // Remove from viewed_by tracking
-        self.viewed_by.remove(filename);
-    }
-
     pub fn get_files_to_delete(&self, threshold: Duration) -> Vec<String> {
         let now = SystemTime::now();
         let mut files = Vec::new();
@@ -108,5 +105,31 @@ impl MediaViewState {
         } else {
             false
         }
+    }
+
+    pub fn set_last_sound(&mut self, sound: SoundInfo) {
+        self.last_sound = Some(sound);
+    }
+
+    pub fn get_last_sound(&self) -> Option<&SoundInfo> {
+        self.last_sound.as_ref()
+    }
+
+    // Update remove_file_from_state to handle sounds:
+    pub fn remove_file_from_state(&mut self, filename: &str) {
+        // Remove from last_media if it matches
+        if let Some(media) = &self.last_media {
+            if media.filename == filename {
+                self.last_media = None;
+            }
+        }
+        // Remove from last_sound if it matches
+        if let Some(sound) = &self.last_sound {
+            if sound.filename == filename {
+                self.last_sound = None;
+            }
+        }
+        // Remove from viewed_by tracking
+        self.viewed_by.remove(filename);
     }
 }
