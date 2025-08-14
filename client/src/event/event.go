@@ -33,6 +33,16 @@ func DispatchEvent(json map[string]string) {
 		} else {
 			log.Println("no url found")
 		}
+	case "combination":
+		if _, ok := json["url"]; ok {
+			openBrowser("http://" + constant.IP_ADDR_SERVER + json["url"])
+		}
+		if _, ok := json["url_raw"]; ok {
+			openBrowser(json["url"])
+		}
+		if _, ok := json["audio"]; ok {
+			playSong("http://" + constant.IP_ADDR_SERVER + json["url"])
+		}
 	default:
 		log.Println("default:", json)
 	}
