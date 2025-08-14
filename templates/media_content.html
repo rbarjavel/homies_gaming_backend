@@ -1,0 +1,30 @@
+{# templates/media_content.html #}
+{% match media_info %}
+    {% when Some with (media) %}
+        {% match media.media_type %}
+            {% when MediaType::Image %}
+                <script>
+                    updateRefreshInterval(5000);
+                </script>
+                <img src="/uploads/{{ media.filename }}" alt="Uploaded image" />
+            {% when MediaType::Video %}
+                <!-- Direct video embed with autoplay controls -->
+                <video 
+                    controls 
+                    autoplay 
+                    style="width: 100%; height: 100%; object-fit: cover;"
+                    onended="onVideoEnd();"
+                    onplay="onVideoPlay();">
+                    <source src="/uploads/{{ media.filename }}" type="video/mp4">
+                    Your browser does not support the video tag.
+                </video>
+                <script>
+                    updateRefreshInterval(999999);
+                </script>
+        {% endmatch %}
+    {% when None %}
+        <script>
+            updateRefreshInterval(1000);
+        </script>
+        <p>No new media</p>
+{% endmatch %}
