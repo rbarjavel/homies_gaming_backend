@@ -17,6 +17,7 @@ dependencies:
   path: ^1.9.1
   shake: ^3.0.0
   shared_preferences: ^2.5.3
+  numberpicker: ^2.1.2
 
 dev_dependencies:
   flutter_test:

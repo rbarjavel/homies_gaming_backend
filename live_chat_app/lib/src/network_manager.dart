@@ -16,7 +16,11 @@ class NetworkManager {
     await prefs.setString("url_server", url);
   }
 
-  static Future<bool> uploadImage(File imageFile) async {
+  static Future<bool> uploadImage(
+    File imageFile, {
+    String? text,
+    int? duration,
+  }) async {
     final uri = Uri.parse(url);
     final request = http.MultipartRequest('POST', uri);
 
@@ -31,6 +35,12 @@ class NetworkManager {
     );
 
     request.files.add(multipartFile);
+    if (text != null) {
+      request.fields["caption"] = text;
+    }
+    if (duration != null) {
+      request.fields["duration"] = duration.toString();
+    }
 
     try {
       final response = await request.send();

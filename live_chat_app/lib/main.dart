@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:live_chat_app/src/network_manager.dart';
+import 'package:numberpicker/numberpicker.dart';
 import 'package:shake/shake.dart';
 
 void main() async {
@@ -44,10 +45,21 @@ class MyHomePage extends StatefulWidget {
 class _MyHomePageState extends State<MyHomePage> {
   File? _image;
   final ImagePicker _picker = ImagePicker();
+  final TextEditingController controllerText = TextEditingController();
+  final FocusNode textFocus = FocusNode();
+  bool isEditFocus = false;
+  int durationValue = 5;
 
   late ShakeDetector detector;
 
   bool bottomSheetOpen = false;
+
+  @override
+  void dispose() {
+    controllerText.dispose();
+    textFocus.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -119,46 +131,115 @@ class _MyHomePageState extends State<MyHomePage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black38,
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            children: <Widget>[
-              const Center(
-                child: Text(
-                  'LIVE CHAT UPLOADER',
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
-              if (_image == null)
-                const Text(
-                  'Aucune image sélectionnée.',
-                  style: TextStyle(color: Colors.white),
-                )
-              else
+    Size size = MediaQuery.of(context).size;
+    return PopScope(
+      canPop: false,
+      child: Scaffold(
+        backgroundColor: Colors.black38,
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.only(
+              top: 32.0,
+              bottom: 24,
+              left: 16,
+              right: 16,
+            ),
+            child: Column(
+              children: <Widget>[
                 Expanded(
-                  child: Center(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.all(Radius.circular(14)),
-                        image: DecorationImage(
-                          image: Image.file(_image!).image,
-                        ),
+                  flex: 1,
+                  child: const Center(
+                    child: Text(
+                      'LIVE CHAT UPLOADER',
+                      style: TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
                       ),
                     ),
                   ),
                 ),
-              if (_image != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 20.0),
-                  child: ElevatedButton(
+                if (_image == null)
+                  const Center(
+                    child: Text(
+                      'Aucune image sélectionnée.',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                  )
+                else
+                  Expanded(
+                    flex: 4,
+                    child: Center(
+                      child: GestureDetector(
+                        onTap: () {
+                          if (!isEditFocus) {
+                            FocusScope.of(context).requestFocus(textFocus);
+                            isEditFocus = true;
+                          } else {
+                            isEditFocus = false;
+                          }
+                        },
+                        child: Container(
+                          decoration: BoxDecoration(
+                            image: DecorationImage(
+                              fit: BoxFit.contain,
+                              image: Image.file(_image!).image,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                if (_image != null)
+                  Expanded(
+                    flex: 1,
+                    child: Container(
+                      margin: EdgeInsets.symmetric(horizontal: 16),
+                      child: Center(
+                        child: TextField(
+                          textAlign: TextAlign.center,
+                          decoration: InputDecoration(
+                            focusedBorder: InputBorder.none,
+                            enabledBorder: InputBorder.none,
+                            border: InputBorder.none,
+                          ),
+                          controller: controllerText,
+                          focusNode: textFocus,
+                          onTapOutside: (_) {
+                            FocusManager.instance.primaryFocus?.unfocus();
+                          },
+                          cursorColor: Colors.white,
+                          maxLines: null,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                if (_image != null)
+                  Expanded(
+                    flex: 1,
+                    child: NumberPicker(
+                      value: durationValue,
+                      minValue: 5,
+                      haptics: true,
+                      maxValue: 60,
+                      axis: Axis.horizontal,
+                      textStyle: TextStyle(color: Colors.white),
+                      selectedTextStyle: TextStyle(
+                        color: Colors.white,
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      onChanged: (value) =>
+                          setState(() => durationValue = value),
+                    ),
+                  ),
+                if (_image != null)
+                  ElevatedButton(
                     style: ButtonStyle(
                       backgroundColor: WidgetStateProperty.all(Colors.amber),
                     ),
@@ -166,6 +247,10 @@ class _MyHomePageState extends State<MyHomePage> {
                       if (_image != null) {
                         bool success = await NetworkManager.uploadImage(
                           _image!,
+                          text: controllerText.text.isNotEmpty
+                              ? controllerText.text
+                              : null,
+                          duration: durationValue,
                         );
                         if (success) {
                           print('Upload réussi !');
@@ -179,16 +264,16 @@ class _MyHomePageState extends State<MyHomePage> {
                       style: TextStyle(color: Colors.black, fontSize: 16),
                     ),
                   ),
-                ),
-            ],
+              ],
+            ),
           ),
         ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        backgroundColor: Colors.amber,
-        onPressed: _pickImage,
-        tooltip: 'Upload image',
-        child: const Icon(Icons.add),
+        floatingActionButton: FloatingActionButton(
+          backgroundColor: Colors.amber,
+          onPressed: _pickImage,
+          tooltip: 'Upload image',
+          child: const Icon(Icons.add),
+        ),
       ),
     );
   }

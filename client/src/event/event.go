@@ -67,7 +67,7 @@ func openBrowser(url string) {
 }
 
 var otoCtx *oto.Context
-var mu *sync.Mutex
+var mu sync.Mutex
 
 func InitOtoContext() {
 	op := &oto.NewContextOptions{}
