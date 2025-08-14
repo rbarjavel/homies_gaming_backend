@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os/exec"
 	"runtime"
+	"sync"
 	"time"
 
 	"github.com/ebitengine/oto/v3"
@@ -65,9 +66,31 @@ func openBrowser(url string) {
 	}
 }
 
+var otoCtx *oto.Context
+var mu *sync.Mutex
+
+func InitOtoContext() {
+	op := &oto.NewContextOptions{}
+	// Usually 44100 or 48000. Other values might cause distortions in Oto
+	op.SampleRate = 44100
+	// Number of channels (aka locations) to play sounds from. Either 1 or 2.
+	// 1 is mono sound, and 2 is stereo (most speakers are stereo).
+	op.ChannelCount = 2
+	// Format of the source. go-mp3's format is signed 16bit integers.
+	op.Format = oto.FormatSignedInt16LE
+
+	otoCtxTmp, readyChan, err := oto.NewContext(op)
+	if err != nil {
+		panic("oto.NewContext failed: " + err.Error())
+	}
+
+	otoCtx = otoCtxTmp
+
+	<-readyChan
+}
+
 func playSong(url string) {
 	fmt.Println("Downloading sound from:", url)
-
 	// Télécharger le fichier audio depuis l'URL
 	resp, err := http.Get(url)
 	if err != nil {
@@ -84,21 +107,11 @@ func playSong(url string) {
 		panic("mp3.NewDecoder failed: " + err.Error())
 	}
 
-	op := &oto.NewContextOptions{}
-	// Usually 44100 or 48000. Other values might cause distortions in Oto
-	op.SampleRate = 44100
-	// Number of channels (aka locations) to play sounds from. Either 1 or 2.
-	// 1 is mono sound, and 2 is stereo (most speakers are stereo).
-	op.ChannelCount = 2
-	// Format of the source. go-mp3's format is signed 16bit integers.
-	op.Format = oto.FormatSignedInt16LE
-
-	otoCtx, readyChan, err := oto.NewContext(op)
-	if err != nil {
-		panic("oto.NewContext failed: " + err.Error())
+	if otoCtx == nil {
+		mu.Lock()
+		InitOtoContext()
+		mu.Unlock()
 	}
-
-	<-readyChan
 
 	player := otoCtx.NewPlayer(decodedMp3)
 
