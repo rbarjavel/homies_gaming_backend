@@ -2,9 +2,20 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class NetworkManager {
   static String url = 'http://70.0.0.118:3030/upload';
+  static Future<void> loadURLFromCache() async {
+    final prefs = await SharedPreferences.getInstance();
+    url = prefs.getString("url_server") ?? 'http://70.0.0.118:3030/upload';
+  }
+
+  static Future<void> setURLToCache(String url) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString("url_server", url);
+  }
+
   static Future<bool> uploadImage(File imageFile) async {
     final uri = Uri.parse(url);
     final request = http.MultipartRequest('POST', uri);

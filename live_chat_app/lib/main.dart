@@ -1,11 +1,19 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:live_chat_app/src/network_manager.dart';
 import 'package:shake/shake.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.portraitDown,
+  ]);
+
+  await NetworkManager.loadURLFromCache();
   runApp(const MyApp());
 }
 
@@ -39,16 +47,65 @@ class _MyHomePageState extends State<MyHomePage> {
 
   late ShakeDetector detector;
 
+  bool bottomSheetOpen = false;
+
   @override
   void initState() {
     super.initState();
     detector = ShakeDetector.autoStart(
-      onPhoneShake: (ShakeEvent event) {
-        print('OK');
-        // TODO: spawn bottomsheet to change address
+      onPhoneShake: (ShakeEvent event) async {
+        if (!bottomSheetOpen) {
+          bottomSheetOpen = true;
+          showModalSettings();
+          bottomSheetOpen = false;
+        }
       },
-      shakeThresholdGravity: 1.5,
+      shakeThresholdGravity: 3,
     );
+  }
+
+  void showModalSettings() async {
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true, // Ajoutez cette ligne
+      builder: (BuildContext context) {
+        Size size = MediaQuery.of(context).size;
+        TextEditingController controller = TextEditingController(
+          text: NetworkManager.url,
+        );
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom,
+            left: 16.0,
+            right: 16.0,
+            top: 16.0,
+          ),
+          child: SizedBox(
+            height: size.height * 0.2,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: controller,
+                  decoration: const InputDecoration(
+                    labelText: 'Nouvelle adresse',
+                    hintText: 'Entrez une nouvelle adresse',
+                    filled: true,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.all(Radius.circular(12.0)),
+                    ),
+                  ),
+                  onChanged: (text) {
+                    NetworkManager.url = text;
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+    await NetworkManager.setURLToCache(NetworkManager.url);
   }
 
   Future<void> _pickImage() async {
@@ -117,7 +174,10 @@ class _MyHomePageState extends State<MyHomePage> {
                         }
                       }
                     },
-                    child: const Text("Upload", style: TextStyle(fontSize: 16)),
+                    child: const Text(
+                      "Upload",
+                      style: TextStyle(color: Colors.black, fontSize: 16),
+                    ),
                   ),
                 ),
             ],

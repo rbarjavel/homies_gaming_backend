@@ -13,7 +13,8 @@ func main() {
 	if len(os.Args) < 2 {
 		wsURL = "ws://" + constant.IP_ADDR_SERVER + "/ws"
 	} else {
-		wsURL = os.Args[1]
+		wsURL = "ws://" + os.Args[1] + "/ws"
+		constant.IP_ADDR_SERVER = os.Args[1]
 	}
 
 	if runtime.GOOS == "windows" {

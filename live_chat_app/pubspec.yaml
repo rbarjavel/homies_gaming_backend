@@ -16,12 +16,20 @@ dependencies:
   http: ^1.5.0
   path: ^1.9.1
   shake: ^3.0.0
+  shared_preferences: ^2.5.3
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  flutter_launcher_icons: ^0.14.4
 
   flutter_lints: ^5.0.0
 
 flutter:
   uses-material-design: true
+
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "./logo_live_chat.png"
+  min_sdk_android: 21
