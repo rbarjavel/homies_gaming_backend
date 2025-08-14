@@ -41,7 +41,7 @@ async fn main() {
 
     let upload_route = warp::post()
         .and(warp::path("upload"))
-        .and(warp::multipart::form())
+        .and(warp::multipart::form().max_length(100 * 1024 * 1024)) // 100MB limit
         .and(warp::addr::remote())
         .and(with_state(media_state_upload))
         .and(with_ws_state(ws_clients_upload)) // Add WebSocket state

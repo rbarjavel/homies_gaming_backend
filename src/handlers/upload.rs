@@ -28,7 +28,7 @@ pub async fn upload_image(
     mut form: FormData,
     _addr: Option<std::net::SocketAddr>,
     state: SharedState,
-    ws_clients: websocket::WsClients, // Add this parameter
+    ws_clients: websocket::WsClients,
 ) -> Result<impl Reply, Rejection> {
     // Process the stream directly without collecting
     while let Some(result) = form.next().await {
@@ -42,6 +42,14 @@ pub async fn upload_image(
                     // Determine media type from filename
                     let media_type = detect_media_type(&original_filename);
 
+                    // Validate file type
+                    if !is_valid_media_type(&original_filename) {
+                        return Ok(warp::reply::html(
+                            "<p>Invalid file type! Only images and videos are allowed.</p>"
+                                .to_string(),
+                        ));
+                    }
+
                     // Create directory
                     tokio::fs::create_dir_all("uploads").await.map_err(|e| {
                         tracing::error!("Failed to create uploads directory: {}", e);
@@ -54,10 +62,23 @@ pub async fn upload_image(
                         warp::reject::custom(AppError::IoError(e))
                     })?;
 
-                    // Stream data chunks directly
+                    // Stream data chunks directly and track file size
+                    let mut total_size = 0u64;
+                    const MAX_FILE_SIZE: u64 = 100 * 1024 * 1024; // 100MB
+
                     while let Some(chunk_result) = field.data().await {
                         match chunk_result {
                             Ok(mut chunk) => {
+                                total_size += chunk.remaining() as u64;
+
+                                // Check file size limit
+                                if total_size > MAX_FILE_SIZE {
+                                    tracing::error!("File too large: {} bytes", total_size);
+                                    return Ok(warp::reply::html(
+                                        "<p>File too large! Maximum size is 100MB.</p>".to_string(),
+                                    ));
+                                }
+
                                 // Convert Buf to bytes
                                 let bytes = chunk.copy_to_bytes(chunk.remaining());
                                 file.write_all(&bytes).await.map_err(|e| {
@@ -78,17 +99,21 @@ pub async fn upload_image(
                         filename: original_filename.clone(),
                         media_type,
                         upload_time: std::time::SystemTime::now(),
-                        marked_for_deletion: false, // Add this field!
+                        marked_for_deletion: false,
                     };
 
                     let mut state = state.write().await;
                     state.set_last_media(media_info);
-                    tracing::info!("New media uploaded: {}", original_filename);
+                    tracing::info!(
+                        "New media uploaded: {} ({} bytes)",
+                        original_filename,
+                        total_size
+                    );
                     websocket::broadcast_new_media(&ws_clients).await;
 
                     return Ok(warp::reply::html(format!(
-                        r#"<p>Uploaded {} successfully! <img src="/uploads/{}" style="max-width: 300px;" /></p>"#,
-                        original_filename, original_filename
+                        r#"<p>Uploaded {} successfully!</p>"#,
+                        original_filename
                     )));
                 }
             }
@@ -105,7 +130,18 @@ pub async fn upload_image(
 fn detect_media_type(filename: &str) -> MediaType {
     let ext = filename.split('.').last().unwrap_or("").to_lowercase();
     match ext.as_str() {
-        "mp4" | "mov" | "avi" | "webm" | "ogg" => MediaType::Video,
+        "mp4" | "mov" | "avi" | "webm" | "ogg" | "mkv" | "wmv" | "flv" | "m4v" => MediaType::Video,
         _ => MediaType::Image, // Default to image for jpg, png, gif, etc.
+    }
+}
+
+fn is_valid_media_type(filename: &str) -> bool {
+    let ext = filename.split('.').last().unwrap_or("").to_lowercase();
+    match ext.as_str() {
+        // Images
+        "jpg" | "jpeg" | "png" | "gif" | "webp" | "bmp" | "tiff" | "svg" => true,
+        // Videos
+        "mp4" | "mov" | "avi" | "webm" | "ogg" | "mkv" | "wmv" | "flv" | "m4v" => true,
+        _ => false,
     }
 }

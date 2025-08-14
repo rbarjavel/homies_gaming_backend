@@ -8,7 +8,7 @@
 
 {% block content %}
 <form hx-post="/upload" hx-encoding="multipart/form-data" hx-target="#result">
-    <input type="file" name="image" accept="image/*" required />
+    <input type="file" name="image" accept="image/*,video/*" required />
     <button type="submit">Upload</button>
 </form>
 <div id="result"></div>
