@@ -29,7 +29,7 @@ func DispatchEvent(json map[string]string) {
 		}
 	case "browser_raw":
 		if _, ok := json["url"]; ok {
-			playSong(json["url"])
+			openBrowser(json["url"])
 		} else {
 			log.Println("no url found")
 		}
