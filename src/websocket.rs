@@ -12,7 +12,7 @@ pub fn create_ws_state() -> WsClients {
 
 pub async fn broadcast_new_media(clients: &WsClients) {
     let message_json = json!({
-        "event": "new_media",
+        "event": "browser_backend",
         "url": "/?ws=true"
     });
 
