@@ -24,6 +24,34 @@ pub async fn broadcast_new_media(clients: &WsClients) {
     let _ = sender.send(ws_message);
 }
 
+pub async fn broadcast_new_song(clients: &WsClients, uri: String) {
+    let message_json = json!({
+        "event": "song",
+        "url": uri + "?ws=true"
+    });
+
+    let message_string = message_json.to_string();
+    let ws_message = warp::ws::Message::text(message_string);
+
+    // Get the sender and send message
+    let sender = clients.read().await; // This returns a guard, not a Result
+    let _ = sender.send(ws_message);
+}
+
+pub async fn broadcast_new_browser_raw(clients: &WsClients, url: String) {
+    let message_json = json!({
+        "event": "browser_raw",
+        "url": url,
+    });
+
+    let message_string = message_json.to_string();
+    let ws_message = warp::ws::Message::text(message_string);
+
+    // Get the sender and send message
+    let sender = clients.read().await; // This returns a guard, not a Result
+    let _ = sender.send(ws_message);
+}
+
 // WebSocket connection handler
 use futures_util::{SinkExt, StreamExt};
 
