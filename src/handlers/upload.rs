@@ -30,163 +30,55 @@ pub async fn upload_image(
     state: SharedState,
     ws_clients: websocket::WsClients,
 ) -> Result<impl Reply, Rejection> {
-    let mut original_filename = String::new();
-    let mut duration_secs = 5u64; // Default duration
-    let mut caption = String::new(); // Default caption
-
-    // Process the stream directly without collecting
-    while let Some(result) = form.next().await {
-        match result {
-            Ok(mut field) => {
-                match field.name() {
-                    "image" => {
-                        // Get filename early
-                        original_filename = field.filename().unwrap_or("unnamed").to_string();
-                        let file_path = format!("uploads/{}", original_filename);
-
-                        // Determine media type from filename
-                        let media_type = detect_media_type(&original_filename);
-
-                        // Validate file type
-                        if !is_valid_media_type(&original_filename) {
-                            return Ok(warp::reply::html(
-                                "<p>Invalid file type! Only images and videos are allowed.</p>"
-                                    .to_string(),
-                            ));
-                        }
-
-                        // Create directory
-                        tokio::fs::create_dir_all("uploads").await.map_err(|e| {
-                            tracing::error!("Failed to create uploads directory: {}", e);
-                            warp::reject::custom(AppError::IoError(e))
-                        })?;
-
-                        // Create file
-                        let mut file = File::create(&file_path).await.map_err(|e| {
-                            tracing::error!("Failed to create file: {}", e);
-                            warp::reject::custom(AppError::IoError(e))
-                        })?;
-
-                        // Stream data chunks directly and track file size
-                        let mut total_size = 0u64;
-                        const MAX_FILE_SIZE: u64 = 100 * 1024 * 1024; // 100MB
-
-                        while let Some(chunk_result) = field.data().await {
-                            match chunk_result {
-                                Ok(mut chunk) => {
-                                    total_size += chunk.remaining() as u64;
-
-                                    // Check file size limit
-                                    if total_size > MAX_FILE_SIZE {
-                                        tracing::error!("File too large: {} bytes", total_size);
-                                        return Ok(warp::reply::html(
-                                            "<p>File too large! Maximum size is 100MB.</p>"
-                                                .to_string(),
-                                        ));
-                                    }
-
-                                    // Convert Buf to bytes
-                                    let bytes = chunk.copy_to_bytes(chunk.remaining());
-                                    file.write_all(&bytes).await.map_err(|e| {
-                                        tracing::error!("Failed to write file: {}", e);
-                                        warp::reject::custom(AppError::IoError(e))
-                                    })?;
-                                }
-                                Err(e) => {
-                                    tracing::error!("Failed to read chunk: {}", e);
-                                    let io_err = std::io::Error::new(std::io::ErrorKind::Other, e);
-                                    return Err(warp::reject::custom(AppError::IoError(io_err)));
-                                }
-                            }
-                        }
-                    }
-                    "duration" => {
-                        // Parse duration from form field
-                        let mut duration_bytes = Vec::new();
-                        while let Some(chunk_result) = field.data().await {
-                            match chunk_result {
-                                Ok(mut chunk) => {
-                                    let bytes = chunk.copy_to_bytes(chunk.remaining());
-                                    duration_bytes.extend_from_slice(&bytes);
-                                }
-                                Err(e) => {
-                                    tracing::error!("Failed to read duration field: {}", e);
-                                    return Err(warp::reject::custom(AppError::MultipartError));
-                                }
-                            }
-                        }
-
-                        if let Ok(duration_str) = String::from_utf8(duration_bytes) {
-                            if let Ok(parsed_duration) = duration_str.trim().parse::<u64>() {
-                                // Clamp duration between 1 and 60 seconds
-                                duration_secs = parsed_duration.clamp(1, 60);
-                            }
-                        }
-                    }
-                    "caption" => {
-                        // Parse caption from form field
-                        let mut caption_bytes = Vec::new();
-                        while let Some(chunk_result) = field.data().await {
-                            match chunk_result {
-                                Ok(mut chunk) => {
-                                    let bytes = chunk.copy_to_bytes(chunk.remaining());
-                                    caption_bytes.extend_from_slice(&bytes);
-                                }
-                                Err(e) => {
-                                    tracing::error!("Failed to read caption field: {}", e);
-                                    return Err(warp::reject::custom(AppError::MultipartError));
-                                }
-                            }
-                        }
-
-                        if let Ok(parsed_caption) = String::from_utf8(caption_bytes) {
-                            caption = parsed_caption.trim().to_string();
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            Err(e) => {
-                tracing::error!("Failed to read field: {}", e);
-                return Err(warp::reject::custom(AppError::MultipartError));
-            }
-        }
-    }
+    // Parse form data
+    let form_data = parse_form_data(&mut form).await?;
 
     // Only proceed if we have a filename
-    if !original_filename.is_empty() {
+    if !form_data.filename.is_empty() {
+        // Validate file type
+        if !is_valid_media_type(&form_data.filename) {
+            return Ok(warp::reply::html(
+                "<p>Invalid file type! Only images and videos are allowed.</p>".to_string(),
+            ));
+        }
+
+        // Save file to disk
+        let file_size = save_uploaded_file(&form_data.filename, &form_data.file_data).await?;
+
+        // Check file size limit
+        if file_size > 100 * 1024 * 1024 {
+            // 100MB
+            return Ok(warp::reply::html(
+                "<p>File too large! Maximum size is 100MB.</p>".to_string(),
+            ));
+        }
+
+        // Store values before move
+        let filename = form_data.filename.clone();
+        let caption = form_data.caption.clone();
+
         // Determine media type and adjust duration
-        let media_type = detect_media_type(&original_filename);
-        // For videos, we might want to use a longer default or special handling
+        let media_type = detect_media_type(&form_data.filename);
         let final_duration = match media_type {
             MediaType::Video => 999999, // Special value for videos (no auto-refresh)
-            MediaType::Image => duration_secs,
+            MediaType::Image => form_data.duration_secs,
         };
 
-        // Update shared state with new media
-        let media_info = MediaInfo {
-            filename: original_filename.clone(),
+        // Create media info
+        let media_info = create_media_info(
+            form_data.filename,
             media_type,
-            upload_time: std::time::SystemTime::now(),
-            marked_for_deletion: false,
-            duration_secs: final_duration,
-            caption: caption.clone(), // Add caption
-        };
-
-        let mut state = state.write().await;
-        state.set_last_media(media_info);
-        tracing::info!(
-            "New media uploaded: {} ({} bytes, {}s duration, caption: {})",
-            original_filename,
-            0,
             final_duration,
-            if caption.is_empty() { "none" } else { &caption }
+            form_data.caption,
         );
-        websocket::broadcast_new_media(&ws_clients).await;
 
+        // Update shared state
+        update_state_and_broadcast(state, media_info, ws_clients).await?;
+
+        // Return success response
         return Ok(warp::reply::html(format!(
             r#"<p>Uploaded {} successfully! Display duration: {} seconds{}</p>"#,
-            original_filename,
+            filename,
             if final_duration == 999999 {
                 "Full video".to_string()
             } else {
@@ -201,6 +93,157 @@ pub async fn upload_image(
     }
 
     Ok(warp::reply::html("<p>No media uploaded!</p>".to_string()))
+}
+
+// Struct to hold parsed form data
+struct FormDataParsed {
+    filename: String,
+    file_data: Vec<u8>,
+    duration_secs: u64,
+    caption: String,
+}
+
+// Parse form data from multipart
+async fn parse_form_data(form: &mut FormData) -> Result<FormDataParsed, Rejection> {
+    let mut filename = String::new();
+    let mut file_data = Vec::new();
+    let mut duration_secs = 5u64; // Default duration
+    let mut caption = String::new(); // Default caption
+
+    // Process the stream directly without collecting
+    while let Some(result) = form.next().await {
+        match result {
+            Ok(mut field) => {
+                match field.name() {
+                    "image" => {
+                        // Get filename
+                        filename = field.filename().unwrap_or("unnamed").to_string();
+
+                        // Collect file data
+                        while let Some(chunk_result) = field.data().await {
+                            match chunk_result {
+                                Ok(mut chunk) => {
+                                    let bytes = chunk.copy_to_bytes(chunk.remaining());
+                                    file_data.extend_from_slice(&bytes);
+                                }
+                                Err(e) => {
+                                    tracing::error!("Failed to read file data: {}", e);
+                                    return Err(warp::reject::custom(AppError::MultipartError));
+                                }
+                            }
+                        }
+                    }
+                    "duration" => {
+                        let duration_str = read_field_as_string(field).await?;
+                        if let Ok(parsed_duration) = duration_str.trim().parse::<u64>() {
+                            // Clamp duration between 1 and 60 seconds
+                            duration_secs = parsed_duration.clamp(1, 60);
+                        }
+                    }
+                    "caption" => {
+                        caption = read_field_as_string(field).await?;
+                        caption = caption.trim().to_string();
+                    }
+                    _ => {}
+                }
+            }
+            Err(e) => {
+                tracing::error!("Failed to read field: {}", e);
+                return Err(warp::reject::custom(AppError::MultipartError));
+            }
+        }
+    }
+
+    Ok(FormDataParsed {
+        filename,
+        file_data,
+        duration_secs,
+        caption,
+    })
+}
+
+// Read a form field as a string
+async fn read_field_as_string(mut field: warp::multipart::Part) -> Result<String, Rejection> {
+    let mut field_data = Vec::new();
+    while let Some(chunk_result) = field.data().await {
+        match chunk_result {
+            Ok(mut chunk) => {
+                let bytes = chunk.copy_to_bytes(chunk.remaining());
+                field_data.extend_from_slice(&bytes);
+            }
+            Err(e) => {
+                tracing::error!("Failed to read field data: {}", e);
+                return Err(warp::reject::custom(AppError::MultipartError));
+            }
+        }
+    }
+
+    String::from_utf8(field_data).map_err(|e| {
+        tracing::error!("Failed to parse field as UTF-8: {}", e);
+        warp::reject::custom(AppError::MultipartError)
+    })
+}
+
+// Save uploaded file to disk
+async fn save_uploaded_file(filename: &str, file_data: &[u8]) -> Result<u64, Rejection> {
+    let file_path = format!("uploads/{}", filename);
+
+    // Create directory
+    tokio::fs::create_dir_all("uploads").await.map_err(|e| {
+        tracing::error!("Failed to create uploads directory: {}", e);
+        warp::reject::custom(AppError::IoError(e))
+    })?;
+
+    // Create file
+    let mut file = File::create(&file_path).await.map_err(|e| {
+        tracing::error!("Failed to create file: {}", e);
+        warp::reject::custom(AppError::IoError(e))
+    })?;
+
+    // Write file data
+    file.write_all(file_data).await.map_err(|e| {
+        tracing::error!("Failed to write file: {}", e);
+        warp::reject::custom(AppError::IoError(e))
+    })?;
+
+    Ok(file_data.len() as u64)
+}
+
+// Create MediaInfo struct
+fn create_media_info(
+    filename: String,
+    media_type: MediaType,
+    duration_secs: u64,
+    caption: String,
+) -> MediaInfo {
+    MediaInfo {
+        filename,
+        media_type,
+        upload_time: std::time::SystemTime::now(),
+        marked_for_deletion: false,
+        duration_secs,
+        caption,
+    }
+}
+
+// Update state and broadcast new media
+async fn update_state_and_broadcast(
+    state: SharedState,
+    media_info: MediaInfo,
+    ws_clients: websocket::WsClients,
+) -> Result<(), Rejection> {
+    let filename = media_info.filename.clone();
+
+    // Update shared state
+    let mut state = state.write().await;
+    state.set_last_media(media_info);
+
+    tracing::info!("New media uploaded: {}", filename);
+
+    // Broadcast to websocket clients
+    websocket::broadcast_new_media(&ws_clients).await;
+
+    Ok(())
 }
 
 fn detect_media_type(filename: &str) -> MediaType {
