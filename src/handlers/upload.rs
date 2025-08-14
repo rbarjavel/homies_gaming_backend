@@ -1,11 +1,15 @@
+use crate::{
+    errors::AppError,
+    state::{MediaInfo, MediaType, MediaViewState},
+    templates::UploadTemplate,
+};
 use askama::Template;
-use warp::{multipart::FormData, Rejection, Reply};
-use futures_util::StreamExt;
-use tokio::{fs::File, io::AsyncWriteExt};
 use bytes::Buf;
+use futures_util::StreamExt;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use crate::{templates::UploadTemplate, errors::AppError, state::{MediaViewState, MediaInfo, MediaType}};
+use tokio::{fs::File, io::AsyncWriteExt};
+use warp::{Rejection, Reply, multipart::FormData};
 
 use crate::websocket;
 
@@ -16,13 +20,13 @@ pub async fn upload_form() -> Result<impl Reply, Rejection> {
     let template = UploadTemplate;
     match template.render() {
         Ok(html) => Ok(warp::reply::html(html)),
-        Err(e) => Err(warp::reject::custom(AppError::RenderError(e)))
+        Err(e) => Err(warp::reject::custom(AppError::RenderError(e))),
     }
 }
 
 pub async fn upload_image(
-    mut form: FormData, 
-    addr: Option<std::net::SocketAddr>,
+    mut form: FormData,
+    _addr: Option<std::net::SocketAddr>,
     state: SharedState,
     ws_clients: websocket::WsClients, // Add this parameter
 ) -> Result<impl Reply, Rejection> {

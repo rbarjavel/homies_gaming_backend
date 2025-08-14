@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
-use std::time::{SystemTime, Duration};
+use std::time::{Duration, SystemTime};
 
 #[derive(Clone, Debug)]
 pub struct MediaInfo {
@@ -34,7 +34,10 @@ impl MediaViewState {
     }
 
     pub fn mark_viewed(&mut self, filename: &str, ip: IpAddr) -> bool {
-        let viewed_set = self.viewed_by.entry(filename.to_string()).or_insert_with(HashSet::new);
+        let viewed_set = self
+            .viewed_by
+            .entry(filename.to_string())
+            .or_insert_with(HashSet::new);
         viewed_set.insert(ip)
         // Returns true if IP was newly inserted (first view), false if already existed
     }
@@ -68,7 +71,7 @@ impl MediaViewState {
             }
         }
     }
-    
+
     // Completely remove file from state (for re-upload)
     pub fn remove_file_from_state(&mut self, filename: &str) {
         // Remove from last_media if it matches
@@ -80,11 +83,11 @@ impl MediaViewState {
         // Remove from viewed_by tracking
         self.viewed_by.remove(filename);
     }
-    
+
     pub fn get_files_to_delete(&self, threshold: Duration) -> Vec<String> {
         let now = SystemTime::now();
         let mut files = Vec::new();
-        
+
         if let Some(media) = &self.last_media {
             if let Ok(elapsed) = now.duration_since(media.upload_time) {
                 if elapsed > threshold && !media.marked_for_deletion {
@@ -92,10 +95,10 @@ impl MediaViewState {
                 }
             }
         }
-        
+
         files
     }
-    
+
     // Check if a file exists in our state
     pub fn file_exists(&self, filename: &str) -> bool {
         if let Some(media) = &self.last_media {

@@ -1,5 +1,5 @@
-use askama::Template;
 use crate::state::{MediaInfo, MediaType};
+use askama::Template;
 
 #[derive(Template)]
 #[template(path = "index.html")]

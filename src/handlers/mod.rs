@@ -1,2 +1,2 @@
-pub mod upload;
 pub mod media;
+pub mod upload;

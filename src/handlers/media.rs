@@ -1,15 +1,18 @@
-use warp::{Rejection, Reply};
-use std::sync::Arc;
-use tokio::sync::RwLock;
-use std::net::SocketAddr;
+use crate::{errors::AppError, state::MediaViewState, templates::MediaContentTemplate};
 use askama::Template;
-use crate::{templates::MediaContentTemplate, state::MediaViewState, errors::AppError};
+use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::RwLock;
 use tokio::time::sleep;
+use warp::{Rejection, Reply};
 
 pub type SharedState = Arc<RwLock<MediaViewState>>;
 
-pub async fn last_media(addr: Option<SocketAddr>, state: SharedState) -> Result<impl Reply, Rejection> {
+pub async fn last_media(
+    addr: Option<SocketAddr>,
+    state: SharedState,
+) -> Result<impl Reply, Rejection> {
     // Get client IP
     sleep(Duration::from_millis(100)).await;
     let client_ip = addr.map(|socket_addr| socket_addr.ip());
@@ -58,7 +61,7 @@ pub async fn last_media(addr: Option<SocketAddr>, state: SharedState) -> Result<
 pub async fn index_page() -> Result<impl Reply, Rejection> {
     use crate::templates::IndexTemplate;
     use askama::Template;
-    
+
     let template = IndexTemplate;
     match template.render() {
         Ok(html) => Ok(warp::reply::html(html)),

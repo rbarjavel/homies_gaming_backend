@@ -1,14 +1,14 @@
-mod handlers;
-mod templates;
 mod errors;
+mod handlers;
 mod state;
+mod templates;
 mod websocket; // Add this
 
-use warp::Filter;
-use tracing_subscriber;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 use std::time::Duration;
+use tokio::sync::RwLock;
+use tracing_subscriber;
+use warp::Filter;
 
 #[tokio::main]
 async fn main() {
@@ -16,7 +16,7 @@ async fn main() {
 
     // Create shared state
     let media_state = Arc::new(RwLock::new(state::MediaViewState::new()));
-    
+
     // Create WebSocket state
     let ws_clients = websocket::create_ws_state();
 
@@ -58,9 +58,9 @@ async fn main() {
     let ws_route = warp::path("ws")
         .and(warp::ws())
         .and(with_ws_state(ws_clients_route))
-        .and_then(|ws: warp::ws::Ws, clients| async move {
-            websocket::ws_handler(ws, clients).await
-        });
+        .and_then(
+            |ws: warp::ws::Ws, clients| async move { websocket::ws_handler(ws, clients).await },
+        );
 
     // Serve uploaded files
     let uploads_dir = warp::path("uploads").and(warp::fs::dir("uploads/"));
@@ -79,7 +79,8 @@ async fn main() {
 
 fn with_state(
     state: Arc<RwLock<state::MediaViewState>>,
-) -> impl Filter<Extract = (Arc<RwLock<state::MediaViewState>>,), Error = std::convert::Infallible> + Clone {
+) -> impl Filter<Extract = (Arc<RwLock<state::MediaViewState>>,), Error = std::convert::Infallible> + Clone
+{
     warp::any().map(move || state.clone())
 }
 
@@ -94,22 +95,22 @@ fn with_ws_state(
 fn start_cleanup_task(state: Arc<RwLock<state::MediaViewState>>) {
     tokio::spawn(async move {
         let deletion_threshold = Duration::from_secs(10);
-        
+
         loop {
             tokio::time::sleep(Duration::from_secs(1)).await;
-            
+
             let files_to_delete = {
                 let state_guard = state.read().await;
                 state_guard.get_files_to_delete(deletion_threshold)
             };
-            
+
             for filename in files_to_delete {
                 let file_path = format!("uploads/{}", filename);
-                
+
                 match tokio::fs::remove_file(&file_path).await {
                     Ok(_) => {
                         tracing::info!("Deleted file: {}", filename);
-                        
+
                         let mut state_guard = state.write().await;
                         state_guard.remove_file_from_state(&filename);
                     }
