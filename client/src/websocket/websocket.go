@@ -42,6 +42,6 @@ func ConnectToWebsocket(wsURL string) {
 		if err != nil {
 			log.Println("error:", err)
 		}
-		event.DispatchEvent(messageJSON)
+		go event.DispatchEvent(messageJSON)
 	}
 }

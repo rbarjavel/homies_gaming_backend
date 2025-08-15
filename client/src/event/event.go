@@ -35,14 +35,14 @@ func DispatchEvent(json map[string]string) {
 			log.Println("no url found")
 		}
 	case "combination":
+		if _, ok := json["audio"]; ok {
+			playSong("http://" + constant.IP_ADDR_SERVER + json["url"])
+		}
 		if _, ok := json["url"]; ok {
 			openBrowser("http://" + constant.IP_ADDR_SERVER + json["url"])
 		}
 		if _, ok := json["url_raw"]; ok {
 			openBrowser(json["url"])
-		}
-		if _, ok := json["audio"]; ok {
-			playSong("http://" + constant.IP_ADDR_SERVER + json["url"])
 		}
 	default:
 		log.Println("default:", json)
@@ -96,7 +96,6 @@ func playSong(url string) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		log.Fatalf("bad status: %s", resp.Status)
@@ -114,15 +113,15 @@ func playSong(url string) {
 	}
 
 	player := otoCtx.NewPlayer(decodedMp3)
-
 	player.Play()
-
-	for player.IsPlaying() {
-		time.Sleep(time.Millisecond)
-	}
-
-	err = player.Close()
-	if err != nil {
-		panic("player.Close failed: " + err.Error())
-	}
+	go func() {
+		for player.IsPlaying() {
+			time.Sleep(time.Millisecond)
+		}
+		err = player.Close()
+		if err != nil {
+			panic("player.Close failed: " + err.Error())
+		}
+		resp.Body.Close()
+	}()
 }
