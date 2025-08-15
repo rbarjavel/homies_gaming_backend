@@ -21,9 +21,11 @@ jobs:
         with:
           go-version: '1.24.5'
 
+      - name: Install sound dependence
+        run: sudo apt install -y libasound2-dev
+
       - name: Build release binaries
         run: |
-          apt install libasound2-dev
           cd client
           make release
 
