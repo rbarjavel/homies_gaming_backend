@@ -7,9 +7,9 @@
                     <img src="/uploads/{{ media.filename }}" alt="Uploaded image" style="max-width: 90vw; max-height: 80vh; object-fit: contain;" />
                 {% when MediaType::Video %}
                     <!-- Direct video embed with autoplay controls -->
-                    <video 
-                        controls 
-                        autoplay 
+                    <video
+                        controls
+                        autoplay
                         style="max-width: 90vw; max-height: 80vh; object-fit: contain;"
                         onended="onVideoEnd();"
                         onplay="onVideoPlay();">
@@ -18,7 +18,7 @@
                     </video>
             {% endmatch %}
             {% if !media.caption.is_empty() %}
-            <div class="caption" style="color: #ddd; text-align: center; margin-top: 20px; font-size: 18px; padding: 0 20px; width: 100%; font-family: 'Impact', 'Arial Black', sans-serif; text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);">
+            <div class="caption" style="color: #ddd; text-align: center; margin-top: 20px; font-size: 55px; padding: 0 20px; width: 100%; font-family: 'Impact', 'Arial Black', sans-serif; text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);">
                 {{ media.caption }}
             </div>
             {% endif %}

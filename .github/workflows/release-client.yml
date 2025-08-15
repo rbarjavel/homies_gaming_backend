@@ -23,6 +23,7 @@ jobs:
 
       - name: Build release binaries
         run: |
+          apt install libasound2-dev
           cd client
           make release
 
