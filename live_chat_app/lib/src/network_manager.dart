@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class NetworkManager {
   static String url = 'http://70.0.0.118:3030/upload';
+  static String urlVideo = 'http://70.0.0.118:3030/upload-video';
   static Future<void> loadURLFromCache() async {
     final prefs = await SharedPreferences.getInstance();
     url = prefs.getString("url_server") ?? 'http://70.0.0.118:3030/upload';
@@ -45,6 +46,32 @@ class NetworkManager {
     try {
       final response = await request.send();
 
+      if (response.statusCode == 200) {
+        print('Image uploadée avec succès !');
+        return true;
+      } else {
+        print(
+          'Échec de l\'upload de l\'image avec le statut : ${response.statusCode}',
+        );
+        return false;
+      }
+    } catch (e) {
+      print('Erreur lors de l\'upload de l\'image : $e');
+      return false;
+    }
+  }
+
+  static Future<bool> uploadVideoUrl({
+    required String url,
+    String? mesage,
+  }) async {
+    final uri = Uri.parse(urlVideo);
+    final response = await http.post(
+      uri,
+      body: <String, String>{"video_url": url},
+    );
+
+    try {
       if (response.statusCode == 200) {
         print('Image uploadée avec succès !');
         return true;

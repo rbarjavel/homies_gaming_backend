@@ -18,6 +18,8 @@ dependencies:
   shake: ^3.0.0
   shared_preferences: ^2.5.3
   numberpicker: ^2.1.2
+  receive_sharing_intent: ^1.8.1
+  flutter_exit_app: ^1.1.4
 
 dev_dependencies:
   flutter_test:
