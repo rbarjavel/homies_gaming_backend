@@ -33,19 +33,19 @@ jobs:
         run: |
           cd client
           mv bin/live_chat_linux .
-          zip -r live_chat_linux.zip live_chat_linux client/mpv
+          zip -r live_chat_linux.zip live_chat_linux mpv
 
       - name: Archive live_chat for macOS
         run: |
           cd client
           mv bin/live_chat_macos .
-          zip -r live_chat_macos.zip live_chat_macos client/mpv
+          zip -r live_chat_macos.zip live_chat_macos mpv
 
       - name: Archive live_chat for Windows
         run: |
           cd client
           mv bin/live_chat_windows.exe .
-          zip -r live_chat_windows.zip live_chat_windows.exe client/mpv
+          zip -r live_chat_windows.zip live_chat_windows.exe mpv
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
