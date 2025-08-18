@@ -47,5 +47,16 @@
 	<true/>
 	<key>NSPhotoLibraryUsageDescription</key>
     <string>Cette application a besoin d'accéder à votre galerie pour que vous puissiez sélectionner une image.</string>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>live_chat</string>
+            </array>
+        </dict>
+    </array>
 </dict>
 </plist>

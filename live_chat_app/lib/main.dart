@@ -1,10 +1,13 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_exit_app/flutter_exit_app.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:live_chat_app/src/network_manager.dart';
 import 'package:numberpicker/numberpicker.dart';
+import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 import 'package:shake/shake.dart';
 
 void main() async {
@@ -61,6 +64,9 @@ class _MyHomePageState extends State<MyHomePage> {
     super.dispose();
   }
 
+  late StreamSubscription _intentSub;
+  final _sharedFiles = <SharedMediaFile>[];
+
   @override
   void initState() {
     super.initState();
@@ -74,6 +80,54 @@ class _MyHomePageState extends State<MyHomePage> {
       },
       shakeThresholdGravity: 3,
     );
+
+    // Listen to media sharing coming from outside the app while the app is in the memory.
+    _intentSub = ReceiveSharingIntent.instance.getMediaStream().listen(
+      (value) {
+        setState(() {
+          _sharedFiles.clear();
+          _sharedFiles.addAll(value);
+
+          print("shared files app open: ${_sharedFiles.map((f) => f.toMap())}");
+          for (SharedMediaFile file in _sharedFiles) {
+            NetworkManager.uploadVideoUrl(
+              url: file.path,
+              mesage: file.message,
+            ).then((bool res) {
+              if (res) {
+                FlutterExitApp.exitApp();
+              }
+            });
+          }
+        });
+      },
+      onError: (err) {
+        print("getIntentDataStream error: $err");
+      },
+    );
+
+    // Get the media sharing coming from outside the app while the app is closed.
+    ReceiveSharingIntent.instance.getInitialMedia().then((value) {
+      setState(() {
+        _sharedFiles.clear();
+        _sharedFiles.addAll(value);
+        print(
+          "shared files when app closed: ${_sharedFiles.map((f) => f.toMap())}",
+        );
+        for (SharedMediaFile file in _sharedFiles) {
+          NetworkManager.uploadVideoUrl(
+            url: file.path,
+            mesage: file.message,
+          ).then((bool res) {
+            if (res) {
+              FlutterExitApp.exitApp();
+            }
+          });
+        }
+        // Tell the library that we are done processing the intent.
+        ReceiveSharingIntent.instance.reset();
+      });
+    });
   }
 
   void showModalSettings() async {
