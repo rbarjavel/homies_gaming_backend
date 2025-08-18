@@ -137,7 +137,7 @@ func playVideo(url string) {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "windows":
-		cmd = exec.Command("./mpv/windows/mpv.exe", "--fullscreen", url) //TODO: fix for windows to use good path etc...
+		cmd = exec.Command("start", "mpv/windows/mpv.exe", "--fullscreen", url)
 	case "darwin":
 		cmd = exec.Command("./mpv/macos/mpv", "--fullscreen", url)
 	default:
