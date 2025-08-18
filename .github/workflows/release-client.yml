@@ -21,7 +21,7 @@ jobs:
         with:
           go-version: '1.24.5'
 
-      - name: Install sound dependence
+      - name: Install sound dependence (Linux only)
         run: sudo apt install -y libasound2-dev
 
       - name: Build release binaries
@@ -29,10 +29,19 @@ jobs:
           cd client
           make release
 
+      - name: Archive live_chat for Linux
+        run: zip -r live_chat_linux.zip client/bin/live_chat_linux client/mvp
+
+      - name: Archive live_chat for macOS
+        run: zip -r live_chat_macos.zip client/bin/live_chat_macos client/mvp
+
+      - name: Archive live_chat for Windows
+        run: zip -r live_chat_windows.zip client/bin/live_chat_windows.exe client/mvp
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            client/bin/*
+            *.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
