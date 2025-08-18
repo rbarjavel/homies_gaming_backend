@@ -5,7 +5,9 @@ import (
 	"live_chat/src/constant"
 	"log"
 	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"sync"
 	"time"
@@ -36,7 +38,7 @@ func DispatchEvent(json map[string]string) {
 		}
 	case "video":
 		if _, ok := json["url"]; ok {
-			playVideo(json["url"])
+			playVideo("http://" + constant.IP_ADDR_SERVER + json["url"])
 		} else {
 			log.Println("no url found")
 		}
@@ -132,12 +134,20 @@ func playSong(url string) {
 	}()
 }
 
-// TODO: improve with resolution choosing
 func playVideo(url string) {
 	var cmd *exec.Cmd
+
 	switch runtime.GOOS {
 	case "windows":
-		cmd = exec.Command("start", "mpv/windows/mpv.exe", "--fullscreen", url)
+		exePath, err := os.Executable()
+		if err != nil {
+			log.Println("Impossible d'obtenir le chemin de l'exécutable:", err)
+			return
+		}
+		exeDir := filepath.Dir(exePath)
+		mpvPath := filepath.Join(exeDir, "mpv", "windows", "mpv.exe")
+		cmd = exec.Command(mpvPath, "--fullscreen", url)
+		cmd.Dir = exeDir
 	case "darwin":
 		cmd = exec.Command("./mpv/macos/mpv", "--fullscreen", url)
 	default:
