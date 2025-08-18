@@ -44,8 +44,8 @@ jobs:
       - name: Archive live_chat for Windows
         run: |
           cd client
-          mv bin/live_chat_windows .
-          zip -r live_chat_windows.zip live_chat_windows client/mpv
+          mv bin/live_chat_windows.exe .
+          zip -r live_chat_windows.zip live_chat_windows.exe client/mpv
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
