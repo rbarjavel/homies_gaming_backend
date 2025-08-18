@@ -47,6 +47,21 @@ async fn main() {
         .and(with_ws_state(ws_clients_upload.clone())) // Add WebSocket state
         .and_then(handlers::upload::upload_image);
 
+    let upload_video_route = warp::post()
+        .and(warp::path("upload-video"))
+        .and(warp::body::form())
+        .and(with_state(media_state_upload.clone()))
+        .and(with_ws_state(ws_clients_upload.clone()))
+        .and_then(handlers::upload::upload_video_url);
+
+    // Backward compatibility for YouTube uploads
+    let upload_youtube_route = warp::post()
+        .and(warp::path("upload-youtube"))
+        .and(warp::body::form())
+        .and(with_state(media_state_upload.clone()))
+        .and(with_ws_state(ws_clients_upload.clone()))
+        .and_then(handlers::upload::upload_video_url);
+
     let upload_sound_route = warp::post()
         .and(warp::path("upload-sound"))
         .and(warp::multipart::form().max_length(50 * 1024 * 1024)) // 50MB limit for sounds
@@ -77,6 +92,8 @@ async fn main() {
     // Combine all routes
     let routes = index_route
         .or(upload_form_route)
+        .or(upload_video_route)
+        .or(upload_youtube_route)
         .or(upload_sound_route)
         .or(upload_route)
         .or(last_media_route)

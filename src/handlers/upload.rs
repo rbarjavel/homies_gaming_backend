@@ -84,8 +84,13 @@ pub async fn upload_image(
             final_caption,
         );
 
-        // Update shared state
-        update_state_and_broadcast(state, media_info, ws_clients).await?;
+        // Update shared state and broadcast appropriate events
+        update_state_and_broadcast(state, media_info.clone(), ws_clients.clone()).await?;
+        
+        // If it's a video, also broadcast the video event
+        if media_type == MediaType::Video {
+            websocket::broadcast_video_event(&ws_clients, filename.clone()).await;
+        }
 
         // Return success response
         let caption_message = if media_type == MediaType::Video && !caption.is_empty() {
@@ -249,6 +254,7 @@ async fn update_state_and_broadcast(
     ws_clients: websocket::WsClients,
 ) -> Result<(), Rejection> {
     let filename = media_info.filename.clone();
+    let media_type = media_info.media_type.clone();
 
     // Update shared state
     let mut state = state.write().await;
@@ -257,7 +263,9 @@ async fn update_state_and_broadcast(
     tracing::info!("New media uploaded: {}", filename);
 
     // Broadcast to websocket clients
-    websocket::broadcast_new_media(&ws_clients).await;
+    if media_type != MediaType::Video {
+        websocket::broadcast_new_media(&ws_clients).await;
+    }
 
     Ok(())
 }
@@ -427,4 +435,101 @@ async fn process_video_with_caption(
             Ok(original_filename.to_string())
         }
     }
+}
+
+// Video upload handler (YouTube, TikTok)
+pub async fn upload_video_url(
+    form: std::collections::HashMap<String, String>,
+    state: SharedState,
+    ws_clients: websocket::WsClients,
+) -> Result<impl Reply, Rejection> {
+    let video_url = form.get("video_url").cloned()
+        .or_else(|| form.get("youtube_url").cloned()) // Backward compatibility
+        .unwrap_or_default();
+    let caption = form.get("caption").cloned().unwrap_or_default();
+
+    if video_url.is_empty() {
+        return Ok(warp::reply::html(
+            "<p>No video URL provided!</p>".to_string(),
+        ));
+    }
+
+    // Check if yt-dlp is available
+    if !VideoProcessor::is_ytdlp_available() {
+        return Ok(warp::reply::html(
+            "<p>Video download not available. yt-dlp is not installed.</p>".to_string(),
+        ));
+    }
+
+    // Get video info first
+    let video_info = match VideoProcessor::get_video_metadata(&video_url).await {
+        Ok(info) => info,
+        Err(e) => {
+            tracing::error!("Failed to get video info: {}", e);
+            let user_error = VideoProcessor::get_user_friendly_error(&e.to_string(), &video_url);
+            return Ok(warp::reply::html(
+                format!("<p>{}</p>", user_error),
+            ));
+        }
+    };
+
+    // Check video duration (limit to reasonable length)
+    if video_info.duration > 600 { // 10 minutes
+        return Ok(warp::reply::html(
+            "<p>Video too long! Maximum duration is 10 minutes.</p>".to_string(),
+        ));
+    }
+
+    // Download the video
+    let filename = match VideoProcessor::download_video(&video_url, "uploads").await {
+        Ok(filename) => filename,
+        Err(e) => {
+            tracing::error!("Failed to download video: {}", e);
+            let user_error = VideoProcessor::get_user_friendly_error(&e.to_string(), &video_url);
+            return Ok(warp::reply::html(
+                format!("<p>{}</p>", user_error),
+            ));
+        }
+    };
+
+    // Process video with caption if provided
+    let final_filename = if !caption.is_empty() {
+        match process_video_with_caption(&filename, &caption).await {
+            Ok(processed_filename) => processed_filename,
+            Err(e) => {
+                tracing::error!("Failed to process video with caption: {:?}", e);
+                filename // Use original if caption processing fails
+            }
+        }
+    } else {
+        filename
+    };
+
+    // Create media info
+    let media_info = create_media_info(
+        final_filename.clone(),
+        MediaType::Video,
+        999999, // Videos play full duration
+        String::new(), // Caption is embedded if provided
+    );
+
+    // Update shared state and broadcast video event
+    update_state_and_broadcast(state, media_info, ws_clients.clone()).await?;
+    
+    // Broadcast the video event for video downloads
+    websocket::broadcast_video_event(&ws_clients, final_filename.clone()).await;
+
+    // Return success response
+    let caption_message = if !caption.is_empty() {
+        "<br/>Caption embedded in video"
+    } else {
+        ""
+    };
+
+    Ok(warp::reply::html(format!(
+        r#"<p>Downloaded "{}" successfully!<br/>Duration: {} seconds{}</p>"#,
+        video_info.title,
+        video_info.duration,
+        caption_message
+    )))
 }

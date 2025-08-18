@@ -57,6 +57,23 @@ pub async fn broadcast_new_browser_raw(clients: &WsClients, url: String) {
     let _ = sender.send(ws_message);
 }
 
+pub async fn broadcast_video_event(clients: &WsClients, filename: String) {
+    let video_url = format!("/uploads/{}", filename);
+    let message_json = json!({
+        "event": "video",
+        "url": video_url
+    });
+
+    let message_string = message_json.to_string();
+    let ws_message = warp::ws::Message::text(message_string);
+
+    // Get the sender and send message
+    let sender = clients.read().await;
+    let _ = sender.send(ws_message);
+
+    tracing::info!("Broadcasted video event for: {}", video_url);
+}
+
 // WebSocket connection handler
 use futures_util::{SinkExt, StreamExt};
 
