@@ -34,6 +34,12 @@ func DispatchEvent(json map[string]string) {
 		} else {
 			log.Println("no url found")
 		}
+	case "video":
+		if _, ok := json["url"]; ok {
+			playVideo(json["url"])
+		} else {
+			log.Println("no url found")
+		}
 	case "combination":
 		if _, ok := json["audio"]; ok {
 			playSong("http://" + constant.IP_ADDR_SERVER + json["url"])
@@ -124,4 +130,22 @@ func playSong(url string) {
 		}
 		resp.Body.Close()
 	}()
+}
+
+// TODO: improve with resolution choosing
+func playVideo(url string) {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("./mpv/windows/mpv.exe", "--fullscreen", url) //TODO: fix for windows to use good path etc...
+	case "darwin":
+		cmd = exec.Command("./mpv/macos/mpv", "--fullscreen", url)
+	default:
+		cmd = exec.Command("./mpv/linux/mpv", "--fullscreen", url)
+	}
+
+	err := cmd.Run()
+	if err != nil {
+		log.Println("Impossible d'ouvrir la video:", err)
+	}
 }
