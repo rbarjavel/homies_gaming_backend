@@ -8,6 +8,51 @@ import (
 	"path/filepath"
 )
 
+// copyDir copie de manière récursive un répertoire source vers un répertoire de destination
+func copyDir(src, dst string) error {
+	srcInfo, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dst, srcInfo.Mode()); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		srcPath := filepath.Join(src, entry.Name())
+		dstPath := filepath.Join(dst, entry.Name())
+		if entry.IsDir() {
+			if err := copyDir(srcPath, dstPath); err != nil {
+				return err
+			}
+		} else {
+			if err := copyFile(srcPath, dstPath); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// copyFile copie un fichier source vers un fichier de destination
+func copyFile(src, dst string) error {
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer srcFile.Close()
+	dstFile, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer dstFile.Close()
+	_, err = io.Copy(dstFile, srcFile)
+	return err
+}
+
 func SetupStartup() {
 	exPath, err := os.Executable()
 	if err != nil {
@@ -23,6 +68,8 @@ func SetupStartup() {
 
 	destDir := filepath.Join(programFilesPath, "live_chat")
 	destPath := filepath.Join(destDir, filepath.Base(exPath))
+	mpvSourceDir := filepath.Join(filepath.Dir(exPath), "mpv")
+	mpvDestDir := filepath.Join(destDir, "mpv")
 
 	if _, err := os.Stat(destPath); !os.IsNotExist(err) {
 		log.Println("good")
@@ -31,24 +78,21 @@ func SetupStartup() {
 			log.Println("Impossible de créer le répertoire de destination:", err)
 			return
 		}
-		srcFile, err := os.Open(exPath)
-		if err != nil {
-			log.Println("Impossible d'ouvrir le fichier source:", err)
+
+		if err := copyFile(exPath, destPath); err != nil {
+			log.Println("Erreur lors de la copie de l'exécutable:", err)
 			return
 		}
-		defer srcFile.Close()
 
-		destFile, err := os.Create(destPath)
-		if err != nil {
-			log.Println("Impossible de créer le fichier de destination:", err)
-			return
-		}
-		defer destFile.Close()
-
-		_, err = io.Copy(destFile, srcFile)
-		if err != nil {
-			log.Println("Erreur lors de la copie du fichier:", err)
-			return
+		if _, err := os.Stat(mpvSourceDir); !os.IsNotExist(err) {
+			log.Println("Copie du dossier mpv et de ses dépendances...")
+			if err := copyDir(mpvSourceDir, mpvDestDir); err != nil {
+				log.Println("Erreur lors de la copie du dossier mpv:", err)
+				return
+			}
+			log.Println("Copie du dossier mpv terminée.")
+		} else {
+			log.Println("Le dossier mpv n'a pas été trouvé.")
 		}
 	}
 
