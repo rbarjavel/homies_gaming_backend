@@ -2,6 +2,7 @@ use crate::{
     errors::AppError,
     state::{MediaInfo, MediaType, MediaViewState, SoundInfo},
     templates::UploadTemplate,
+    video_processing::VideoProcessor,
 };
 use askama::Template;
 use bytes::Buf;
@@ -54,7 +55,7 @@ pub async fn upload_image(
         }
 
         // Store values before move
-        let filename = form_data.filename.clone();
+        let mut filename = form_data.filename.clone();
         let caption = form_data.caption.clone();
 
         // Determine media type and adjust duration
@@ -64,18 +65,37 @@ pub async fn upload_image(
             MediaType::Image => form_data.duration_secs,
         };
 
-        // Create media info
+        // Process video with caption overlay if it's a video and has a caption
+        if media_type == MediaType::Video && !caption.is_empty() {
+            filename = process_video_with_caption(&filename, &caption).await?;
+        }
+
+        // Create media info (use processed filename and empty caption for videos since it's now embedded)
+        let final_caption = if media_type == MediaType::Video && !caption.is_empty() {
+            String::new() // Caption is now embedded in video, don't show separately
+        } else {
+            caption.clone()
+        };
+        
         let media_info = create_media_info(
-            form_data.filename,
+            filename.clone(),
             media_type,
             final_duration,
-            form_data.caption,
+            final_caption,
         );
 
         // Update shared state
         update_state_and_broadcast(state, media_info, ws_clients).await?;
 
         // Return success response
+        let caption_message = if media_type == MediaType::Video && !caption.is_empty() {
+            "<br/>Caption embedded in video"
+        } else if !caption.is_empty() {
+            &format!("<br/>Caption: {}", caption)
+        } else {
+            ""
+        };
+        
         return Ok(warp::reply::html(format!(
             r#"<p>Uploaded {} successfully! Display duration: {} seconds{}</p>"#,
             filename,
@@ -84,11 +104,7 @@ pub async fn upload_image(
             } else {
                 final_duration.to_string()
             },
-            if caption.is_empty() {
-                String::new()
-            } else {
-                format!("<br/>Caption: {}", caption)
-            }
+            caption_message
         )));
     }
 
@@ -247,7 +263,7 @@ async fn update_state_and_broadcast(
 }
 
 fn detect_media_type(filename: &str) -> MediaType {
-    let ext = filename.split('.').last().unwrap_or("").to_lowercase();
+    let ext = filename.split('.').next_back().unwrap_or("").to_lowercase();
     match ext.as_str() {
         "mp4" | "mov" | "avi" | "webm" | "ogg" | "mkv" | "wmv" | "flv" | "m4v" => MediaType::Video,
         _ => MediaType::Image, // Default to image for jpg, png, gif, etc.
@@ -255,7 +271,7 @@ fn detect_media_type(filename: &str) -> MediaType {
 }
 
 fn is_valid_media_type(filename: &str) -> bool {
-    let ext = filename.split('.').last().unwrap_or("").to_lowercase();
+    let ext = filename.split('.').next_back().unwrap_or("").to_lowercase();
     match ext.as_str() {
         // Images
         "jpg" | "jpeg" | "png" | "gif" | "webp" | "bmp" | "tiff" | "svg" => true,
@@ -369,9 +385,46 @@ pub async fn upload_sound(
 
 // Add sound type validation
 fn is_valid_sound_type(filename: &str) -> bool {
-    let ext = filename.split('.').last().unwrap_or("").to_lowercase();
+    let ext = filename.split('.').next_back().unwrap_or("").to_lowercase();
     match ext.as_str() {
         "mp3" | "wav" | "ogg" | "flac" | "m4a" => true,
         _ => false,
+    }
+}
+
+// Process video with caption overlay using ffmpeg
+async fn process_video_with_caption(
+    original_filename: &str,
+    caption: &str,
+) -> Result<String, Rejection> {
+    // Check if ffmpeg is available
+    if !VideoProcessor::is_ffmpeg_available() {
+        tracing::warn!("FFmpeg not available, skipping caption overlay");
+        return Ok(original_filename.to_string());
+    }
+
+    // Generate output filename
+    let output_filename = VideoProcessor::generate_output_filename(original_filename);
+    
+    let input_path = format!("uploads/{}", original_filename);
+    let output_path = format!("uploads/{}", output_filename);
+
+    // Process video with caption overlay
+    match VideoProcessor::add_caption_overlay(&input_path, &output_path, caption).await {
+        Ok(_) => {
+            tracing::info!("Successfully processed video with caption: {}", output_filename);
+            
+            // Remove original file to save space
+            if let Err(e) = tokio::fs::remove_file(&input_path).await {
+                tracing::warn!("Failed to remove original video file {}: {}", input_path, e);
+            }
+            
+            Ok(output_filename)
+        }
+        Err(e) => {
+            tracing::error!("Failed to process video with caption: {}", e);
+            // Return original filename if processing fails
+            Ok(original_filename.to_string())
+        }
     }
 }

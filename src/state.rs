@@ -19,7 +19,7 @@ pub struct SoundInfo {
     pub marked_for_deletion: bool,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Copy)]
 pub enum MediaType {
     Image,
     Video,

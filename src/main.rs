@@ -2,12 +2,12 @@ mod errors;
 mod handlers;
 mod state;
 mod templates;
+mod video_processing;
 mod websocket; // Add this
 
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
-use tracing_subscriber;
 use warp::Filter;
 
 #[tokio::main]
@@ -117,11 +117,9 @@ fn start_cleanup_task(state: Arc<RwLock<state::MediaViewState>>) {
 
             for filename in files_to_delete {
                 let file_path = format!("uploads/{}", filename);
-
                 match tokio::fs::remove_file(&file_path).await {
                     Ok(_) => {
                         tracing::info!("Deleted file: {}", filename);
-
                         let mut state_guard = state.write().await;
                         state_guard.remove_file_from_state(&filename);
                     }
