@@ -34,24 +34,62 @@ impl VideoProcessor {
         // Wrap text to fit within video width
         let wrapped_caption = Self::wrap_text(&escaped_caption, video_info.width, font_size);
 
+        // Check for hardware acceleration
+        let (use_hw_accel, hw_accel_args, filter_prefix, filter_suffix, video_codec) = if Self::is_cuda_available() {
+            tracing::info!("CUDA detected, using GPU acceleration");
+            (
+                true,
+                vec!["-hwaccel", "cuda", "-hwaccel_output_format", "cuda"],
+                "hwupload_cuda,",
+                ",hwdownload",
+                "h264_nvenc"
+            )
+        } else if Self::is_vaapi_available() {
+            tracing::info!("VAAPI detected, using GPU acceleration");
+            (
+                true,
+                vec!["-vaapi_device", "/dev/dri/renderD128", "-hwaccel", "vaapi", "-hwaccel_output_format", "vaapi"],
+                "hwupload,",
+                "",
+                "h264_vaapi"
+            )
+        } else {
+            tracing::info!("No hardware acceleration available, using CPU processing");
+            (false, vec![], "", "", "libx264")
+        };
+
         // Build ffmpeg command with dynamic font sizing and wrapped text
         let filter_complex = format!(
-            "drawtext=text='{}':fontfile=/usr/share/fonts/truetype/wintc/impact.ttf:fontsize={}:fontcolor=white:x=(w-text_w)/2:y=h-text_h-{}:shadowcolor=black:shadowx={}:shadowy={}:line_spacing=5",
-            wrapped_caption, font_size, bottom_margin, shadow_offset, shadow_offset
+            "{}drawtext=text='{}':fontfile=/usr/share/fonts/truetype/wintc/impact.ttf:fontsize={}:fontcolor=white:x=(w-text_w)/2:y=h-text_h-{}:shadowcolor=black:shadowx={}:shadowy={}:line_spacing=5{}",
+            filter_prefix, wrapped_caption, font_size, bottom_margin, shadow_offset, shadow_offset, filter_suffix
         );
 
         // Try with Impact font first, fallback to Liberation Sans Bold
         let mut cmd = AsyncCommand::new("ffmpeg");
-        cmd.args([
-            "-i",
-            input_path,
+        
+        // Build arguments correctly
+        let mut args = vec!["-i", input_path];
+        
+        // Add hardware acceleration args if available (as input options)
+        if use_hw_accel {
+            args.extend_from_slice(&hw_accel_args);
+        }
+        
+        // Add processing args
+        args.extend(&[
             "-vf",
             &filter_complex,
             "-c:a",
             "copy", // Copy audio without re-encoding
+            "-c:v",
+            video_codec,
+            "-preset", 
+            "fast", // Faster encoding
             "-y",   // Overwrite output file
             output_path,
         ]);
+        
+        cmd.args(args);
 
         tracing::info!("Processing video with caption: {}", caption);
         tracing::debug!("FFmpeg command: {:?}", cmd);
@@ -99,16 +137,18 @@ impl VideoProcessor {
         );
 
         let mut cmd = AsyncCommand::new("ffmpeg");
-        cmd.args([
-            "-i",
-            input_path,
-            "-vf",
-            &filter_complex,
-            "-c:a",
-            "copy",
-            "-y",
-            output_path,
-        ]);
+        
+        // Base arguments - just input file (no hardware acceleration in fallback)
+        let args = vec![
+            "-i", input_path,
+            "-vf", &filter_complex,
+            "-c:a", "copy",
+            "-c:v", "libx264", // Always use software encoder in fallback
+            "-preset", "fast",
+            "-y", output_path,
+        ];
+        
+        cmd.args(args);
 
         let output = cmd.output().await.map_err(|e| {
             tracing::error!("Failed to execute ffmpeg fallback: {}", e);
@@ -137,6 +177,64 @@ impl VideoProcessor {
             .unwrap_or(false)
     }
 
+    /// Check if CUDA is available on the system
+    pub fn is_cuda_available() -> bool {
+        // Check if nvidia-smi is available and working
+        let nvidia_smi_check = Command::new("nvidia-smi")
+            .arg("--query-gpu=name")
+            .arg("--format=csv")
+            .output()
+            .map(|output| output.status.success() && !output.stdout.is_empty())
+            .unwrap_or(false);
+
+        if nvidia_smi_check {
+            // Also check if ffmpeg supports cuda
+            let ffmpeg_cuda_check = Command::new("ffmpeg")
+                .arg("-hwaccels")
+                .output()
+                .map(|output| {
+                    output.status.success() && 
+                    String::from_utf8_lossy(&output.stdout).contains("cuda")
+                })
+                .unwrap_or(false);
+            
+            tracing::info!("CUDA availability: nvidia-smi={}, ffmpeg-cuda={}", nvidia_smi_check, ffmpeg_cuda_check);
+            return nvidia_smi_check && ffmpeg_cuda_check;
+        }
+        
+        false
+    }
+
+    /// Check if VAAPI is available on the system (Intel/AMD GPU acceleration)
+    pub fn is_vaapi_available() -> bool {
+        // Check if vainfo is available and working
+        let vaapi_check = Command::new("vainfo")
+            .arg("--display")
+            .arg("drm")
+            .arg("--device")
+            .arg("/dev/dri/card0")
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false);
+
+        if vaapi_check {
+            // Also check if ffmpeg supports vaapi
+            let ffmpeg_vaapi_check = Command::new("ffmpeg")
+                .arg("-hwaccels")
+                .output()
+                .map(|output| {
+                    output.status.success() && 
+                    String::from_utf8_lossy(&output.stdout).contains("vaapi")
+                })
+                .unwrap_or(false);
+            
+            tracing::info!("VAAPI availability: vainfo={}, ffmpeg-vaapi={}", vaapi_check, ffmpeg_vaapi_check);
+            return vaapi_check && ffmpeg_vaapi_check;
+        }
+        
+        false
+    }
+
     /// Check if yt-dlp is available on the system
     pub fn is_ytdlp_available() -> bool {
         Command::new("yt-dlp")
@@ -146,8 +244,8 @@ impl VideoProcessor {
             .unwrap_or(false)
     }
 
-    /// Download video from supported platforms (YouTube, TikTok)
-    pub async fn download_video(url: &str, output_dir: &str) -> Result<String, AppError> {
+    /// Download video from supported platforms (YouTube, TikTok) and process it with caption if provided
+    pub async fn download_and_process_video(url: &str, output_dir: &str, caption: Option<&str>) -> Result<String, AppError> {
         // Validate video URL
         if !Self::is_supported_video_url(url) {
             return Err(AppError::IoError(std::io::Error::other(
@@ -173,9 +271,12 @@ impl VideoProcessor {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
-        let output_template = format!("{}/video_{}.%(ext)s", output_dir, timestamp);
+        
+        // For streaming, we'll use a temporary name
+        let temp_filename = format!("temp_video_{}.mp4", timestamp);
+        let temp_path = format!("{}/{}", output_dir, temp_filename);
 
-        // Download video with yt-dlp
+        // Download video with yt-dlp directly to MP4 format for better compatibility
         let mut cmd = AsyncCommand::new("yt-dlp");
         cmd.args([
             "--cookies-from-browser",
@@ -183,14 +284,12 @@ impl VideoProcessor {
             "--format",
             "mp4[height<=720]/mp4/best[height<=720]/best", // Prefer mp4, limit to 720p
             "--output",
-            &output_template,
+            &temp_path, // Direct output to our temp file
             "--no-playlist", // Only download single video
-            "--merge-output-format",
-            "mp4", // Ensure output is mp4
             url,
         ]);
 
-        tracing::info!("Downloading video: {}", url);
+        tracing::info!("Downloading and converting video: {}", url);
         tracing::debug!("yt-dlp command: {:?}", cmd);
 
         let output = cmd.output().await.map_err(|e| {
@@ -201,6 +300,11 @@ impl VideoProcessor {
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             tracing::error!("yt-dlp failed: {}", stderr);
+
+            // Clean up temp file if it was created
+            tokio::task::spawn_blocking(move || {
+                let _ = std::fs::remove_file(&temp_path);
+            });
 
             // Check for specific TikTok authentication issues
             if stderr.contains("Log in for access") || stderr.contains("cookies") {
@@ -229,11 +333,195 @@ impl VideoProcessor {
             ))));
         }
 
-        // Find the downloaded file
-        let downloaded_file = Self::find_downloaded_file(output_dir, timestamp).await?;
+        // Check if the temp file was created
+        if tokio::fs::metadata(&temp_path).await.is_err() {
+            return Err(AppError::IoError(std::io::Error::other(
+                "Downloaded video file not found",
+            )));
+        }
 
-        tracing::info!("Successfully downloaded video: {}", downloaded_file);
-        Ok(downloaded_file)
+        tracing::info!("Successfully downloaded video to: {}", temp_path);
+
+        // If caption is provided, process the video with caption overlay
+        if let Some(caption_text) = caption {
+            if !caption_text.trim().is_empty() {
+                tracing::info!("Processing video with caption overlay");
+                
+                // Generate output filename
+                let output_filename = format!("video_{}_captioned.mp4", timestamp);
+                let output_path = format!("{}/{}", output_dir, output_filename);
+                
+                // Process video with caption
+                match Self::add_caption_overlay(&temp_path, &output_path, caption_text).await {
+                    Ok(_) => {
+                        // Remove temporary file
+                        tokio::task::spawn_blocking(move || {
+                            let _ = std::fs::remove_file(&temp_path);
+                        });
+                        tracing::info!("Video processing completed: {}", output_path);
+                        return Ok(output_filename);
+                    }
+                    Err(e) => {
+                        // Clean up files on error
+                        tokio::task::spawn_blocking(move || {
+                            let _ = std::fs::remove_file(&temp_path);
+                            let _ = std::fs::remove_file(&output_path);
+                        });
+                        return Err(e);
+                    }
+                }
+            }
+        }
+
+        // No caption processing needed, rename temp file to final name
+        let final_filename = format!("video_{}.mp4", timestamp);
+        let final_path = format!("{}/{}", output_dir, final_filename);
+        
+        tokio::fs::rename(&temp_path, &final_path).await.map_err(|e| {
+            tracing::error!("Failed to rename video file: {}", e);
+            // Clean up temp file in a blocking context
+            tokio::task::spawn_blocking(move || {
+                let _ = std::fs::remove_file(&temp_path);
+            });
+            AppError::IoError(e)
+        })?;
+
+        tracing::info!("Video download completed: {}", final_path);
+        Ok(final_filename)
+    }
+
+    /// Stream video download directly to processing (most efficient approach)
+    pub async fn stream_process_video(url: &str, output_dir: &str, caption: Option<&str>) -> Result<String, AppError> {
+        // Validate video URL
+        if !Self::is_supported_video_url(url) {
+            return Err(AppError::IoError(std::io::Error::other(
+                "Invalid video URL. Supported platforms: YouTube, TikTok",
+            )));
+        }
+
+        // Check if required tools are available
+        if !Self::is_ytdlp_available() {
+            return Err(AppError::IoError(std::io::Error::other(
+                "yt-dlp is not available on the system",
+            )));
+        }
+
+        if !Self::is_ffmpeg_available() {
+            return Err(AppError::IoError(std::io::Error::other(
+                "ffmpeg is not available on the system",
+            )));
+        }
+
+        // Create output directory
+        tokio::fs::create_dir_all(output_dir).await.map_err(|e| {
+            tracing::error!("Failed to create output directory: {}", e);
+            AppError::IoError(e)
+        })?;
+
+        // Generate unique filename
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let output_filename = if caption.is_some() && !caption.unwrap().trim().is_empty() {
+            format!("video_{}_captioned.mp4", timestamp)
+        } else {
+            format!("video_{}.mp4", timestamp)
+        };
+        let output_path = format!("{}/{}", output_dir, output_filename);
+
+        // First, download the video using yt-dlp
+        tracing::info!("Downloading video: {}", url);
+        
+        let mut download_cmd = AsyncCommand::new("yt-dlp");
+        download_cmd.args([
+            "--cookies-from-browser",
+            "firefox",
+            "--format",
+            "mp4[height<=720]/mp4/best[height<=720]/best",
+            "--output",
+            &output_path,
+            "--no-playlist",
+            url,
+        ]);
+
+        let download_output = download_cmd.output().await.map_err(|e| {
+            tracing::error!("Failed to execute yt-dlp: {}", e);
+            AppError::IoError(e)
+        })?;
+
+        if !download_output.status.success() {
+            let stderr = String::from_utf8_lossy(&download_output.stderr);
+            tracing::error!("yt-dlp download failed: {}", stderr);
+
+            // Clean up any partial file
+            let _ = tokio::fs::remove_file(&output_path).await;
+
+            // Check for specific TikTok authentication issues
+            if stderr.contains("Log in for access") || stderr.contains("cookies") {
+                return Err(AppError::IoError(std::io::Error::other(
+                    "TikTok video requires authentication. This video may be age-restricted or private. Try a different public TikTok video.",
+                )));
+            }
+
+            // Check for other TikTok-specific issues
+            if stderr.contains("not comfortable for some audiences") {
+                return Err(AppError::IoError(std::io::Error::other(
+                    "TikTok video is age-restricted and cannot be downloaded without authentication. Please try a different video.",
+                )));
+            }
+
+            // Check for private/unavailable content
+            if stderr.contains("Private video") || stderr.contains("Video unavailable") {
+                return Err(AppError::IoError(std::io::Error::other(
+                    "Video is private or unavailable. Please check the URL and try again.",
+                )));
+            }
+
+            return Err(AppError::IoError(std::io::Error::other(format!(
+                "Video download failed: {}",
+                stderr
+            ))));
+        }
+
+        // Check if the file was created
+        if tokio::fs::metadata(&output_path).await.is_err() {
+            return Err(AppError::IoError(std::io::Error::other(
+                "Downloaded video file not found",
+            )));
+        }
+
+        tracing::info!("Video downloaded successfully: {}", output_path);
+
+        // If caption is provided, process the video with caption overlay
+        if let Some(caption_text) = caption {
+            if !caption_text.trim().is_empty() {
+                tracing::info!("Processing video with caption overlay");
+                
+                // Generate processed filename
+                let processed_filename = format!("video_{}_captioned_final.mp4", timestamp);
+                let processed_path = format!("{}/{}", output_dir, processed_filename);
+                
+                // Process video with caption
+                match Self::add_caption_overlay(&output_path, &processed_path, caption_text).await {
+                    Ok(_) => {
+                        // Remove original file to save space
+                        let _ = tokio::fs::remove_file(&output_path).await;
+                        tracing::info!("Video processing completed: {}", processed_path);
+                        return Ok(processed_filename);
+                    }
+                    Err(e) => {
+                        // Clean up files on error
+                        let _ = tokio::fs::remove_file(&output_path).await;
+                        let _ = tokio::fs::remove_file(&processed_path).await;
+                        return Err(e);
+                    }
+                }
+            }
+        }
+
+        tracing::info!("Video processing completed successfully: {}", output_path);
+        Ok(output_filename)
     }
 
     /// Get video metadata from supported platforms (YouTube, TikTok)
@@ -322,28 +610,6 @@ impl VideoProcessor {
         url.contains("vt.tiktok.com/") ||
         url.contains("tiktok.com/t/") ||
         url.contains("m.tiktok.com/")
-    }
-
-    /// Find the downloaded file in the output directory
-    async fn find_downloaded_file(output_dir: &str, timestamp: u64) -> Result<String, AppError> {
-        let mut entries = tokio::fs::read_dir(output_dir).await.map_err(|e| {
-            tracing::error!("Failed to read output directory: {}", e);
-            AppError::IoError(e)
-        })?;
-
-        while let Some(entry) = entries.next_entry().await.map_err(|e| {
-            tracing::error!("Failed to read directory entry: {}", e);
-            AppError::IoError(e)
-        })? {
-            let filename = entry.file_name().to_string_lossy().to_string();
-            if filename.starts_with(&format!("video_{}", timestamp)) {
-                return Ok(filename);
-            }
-        }
-
-        Err(AppError::IoError(std::io::Error::other(
-            "Downloaded file not found",
-        )))
     }
 
     /// Get video information (width, height, duration)
@@ -459,7 +725,7 @@ impl VideoProcessor {
             lines.push(current_line);
         }
 
-        lines.join("\\n")
+        lines.join("\n")
     }
 
     /// Detect the platform from URL
@@ -589,7 +855,7 @@ mod tests {
         // Long text should be wrapped
         let long_text = "This is a very long caption that should be wrapped into multiple lines";
         let result = VideoProcessor::wrap_text(long_text, 360, 30);
-        assert!(result.contains("\\n"));
+        assert!(result.contains("\n"));
 
         // Empty text
         let result = VideoProcessor::wrap_text("", 1920, 50);

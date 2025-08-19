@@ -529,40 +529,23 @@ pub async fn upload_video_url(
         ));
     }
 
-    // Download the video
-    let filename = match VideoProcessor::download_video(&video_url, "uploads").await {
+    // Use streaming download and processing for better performance
+    let filename = match VideoProcessor::stream_process_video(&video_url, "uploads", 
+        if !caption.is_empty() { Some(&caption) } else { None }).await {
         Ok(filename) => {
-            tracing::info!("Successfully downloaded video: {}", filename);
+            tracing::info!("Successfully downloaded and processed video: {}", filename);
             filename
         },
         Err(e) => {
-            tracing::error!("Failed to download video: {}", e);
+            tracing::error!("Failed to download/process video: {}", e);
             let user_error = VideoProcessor::get_user_friendly_error(&e.to_string(), &video_url);
             return Ok(warp::reply::html(format!("<p>{}</p>", user_error)));
         }
     };
 
-    // Process video with caption if provided
-    let final_filename = if !caption.is_empty() {
-        tracing::info!("Processing video with caption: {}", caption);
-        match process_video_with_caption(&filename, &caption).await {
-            Ok(processed_filename) => {
-                tracing::info!("Caption processing completed: {}", processed_filename);
-                processed_filename
-            },
-            Err(e) => {
-                tracing::error!("Failed to process video with caption: {:?}", e);
-                filename // Use original if caption processing fails
-            }
-        }
-    } else {
-        tracing::info!("No caption provided, using original video");
-        filename
-    };
-
     // Create media info
     let media_info = create_media_info(
-        final_filename.clone(),
+        filename.clone(),
         MediaType::Video,
         999999,        // Videos play full duration
         String::new(), // Caption is embedded if provided
@@ -572,7 +555,7 @@ pub async fn upload_video_url(
     update_state_and_broadcast(state, media_info, ws_clients.clone()).await?;
 
     // Broadcast the video event for video downloads
-    websocket::broadcast_video_event(&ws_clients, final_filename.clone()).await;
+    websocket::broadcast_video_event(&ws_clients, filename.clone()).await;
 
     // Return success response
     let caption_message = if !caption.is_empty() {
