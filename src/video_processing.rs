@@ -1,4 +1,5 @@
 use crate::errors::AppError;
+use crate::utils::{sanitize_filename, validate_file_path};
 use serde_json::Value;
 use std::process::Command;
 use tokio::process::Command as AsyncCommand;
@@ -13,8 +14,20 @@ impl VideoProcessor {
         output_path: &str,
         caption: &str,
     ) -> Result<(), AppError> {
+        // Sanitize and validate input and output paths
+        let input_filename = sanitize_filename(input_path)
+            .ok_or_else(|| AppError::IoError(std::io::Error::other("Invalid input filename")))?;
+        let output_filename = sanitize_filename(output_path)
+            .ok_or_else(|| AppError::IoError(std::io::Error::other("Invalid output filename")))?;
+            
+        // Validate that both paths are within the uploads directory
+        let validated_input_path = validate_file_path("uploads", &input_filename)
+            .ok_or_else(|| AppError::IoError(std::io::Error::other("Invalid input file path")))?;
+        let validated_output_path = validate_file_path("uploads", &output_filename)
+            .ok_or_else(|| AppError::IoError(std::io::Error::other("Invalid output file path")))?;
+
         // Get video dimensions first
-        let video_info = Self::get_video_info(input_path).await?;
+        let video_info = Self::get_video_info(&validated_input_path).await?;
 
         // Escape caption text for ffmpeg
         let escaped_caption = escape_ffmpeg_text(caption);
@@ -68,7 +81,7 @@ impl VideoProcessor {
         let mut cmd = AsyncCommand::new("ffmpeg");
         
         // Build arguments correctly
-        let mut args = vec!["-i", input_path];
+        let mut args = vec!["-i", &validated_input_path];
         
         // Add hardware acceleration args if available (as input options)
         if use_hw_accel {
@@ -86,7 +99,7 @@ impl VideoProcessor {
             "-preset", 
             "fast", // Faster encoding
             "-y",   // Overwrite output file
-            output_path,
+            &validated_output_path,
         ]);
         
         cmd.args(args);
@@ -96,7 +109,7 @@ impl VideoProcessor {
 
         let output = cmd.output().await.map_err(|e| {
             tracing::error!("Failed to execute ffmpeg: {}", e);
-            AppError::IoError(e)
+            AppError::IoError(std::io::Error::other("Video processing failed"))
         })?;
 
         if !output.status.success() {
@@ -105,8 +118,8 @@ impl VideoProcessor {
 
             // Try fallback with system default font
             return Self::add_caption_overlay_fallback(
-                input_path,
-                output_path,
+                &validated_input_path,
+                &validated_output_path,
                 caption,
                 font_size,
                 shadow_offset,
@@ -128,6 +141,18 @@ impl VideoProcessor {
         shadow_offset: u32,
         bottom_margin: u32,
     ) -> Result<(), AppError> {
+        // Sanitize and validate input and output paths
+        let input_filename = sanitize_filename(input_path)
+            .ok_or_else(|| AppError::IoError(std::io::Error::other("Invalid input filename")))?;
+        let output_filename = sanitize_filename(output_path)
+            .ok_or_else(|| AppError::IoError(std::io::Error::other("Invalid output filename")))?;
+            
+        // Validate that both paths are within the uploads directory
+        let validated_input_path = validate_file_path("uploads", &input_filename)
+            .ok_or_else(|| AppError::IoError(std::io::Error::other("Invalid input file path")))?;
+        let validated_output_path = validate_file_path("uploads", &output_filename)
+            .ok_or_else(|| AppError::IoError(std::io::Error::other("Invalid output file path")))?;
+
         let escaped_caption = escape_ffmpeg_text(caption);
 
         // Simpler filter without specific font file but with dynamic sizing and text wrapping
@@ -140,19 +165,19 @@ impl VideoProcessor {
         
         // Base arguments - just input file (no hardware acceleration in fallback)
         let args = vec![
-            "-i", input_path,
+            "-i", &validated_input_path,
             "-vf", &filter_complex,
             "-c:a", "copy",
             "-c:v", "libx264", // Always use software encoder in fallback
             "-preset", "fast",
-            "-y", output_path,
+            "-y", &validated_output_path,
         ];
         
         cmd.args(args);
 
         let output = cmd.output().await.map_err(|e| {
             tracing::error!("Failed to execute ffmpeg fallback: {}", e);
-            AppError::IoError(e)
+            AppError::IoError(std::io::Error::other("Video processing failed"))
         })?;
 
         if !output.status.success() {
@@ -260,10 +285,17 @@ impl VideoProcessor {
             )));
         }
 
+        // Validate output directory
+        if output_dir != "uploads" {
+            return Err(AppError::IoError(std::io::Error::other(
+                "Invalid output directory",
+            )));
+        }
+
         // Create output directory
         tokio::fs::create_dir_all(output_dir).await.map_err(|e| {
             tracing::error!("Failed to create output directory: {}", e);
-            AppError::IoError(e)
+            AppError::IoError(std::io::Error::other("Failed to create output directory"))
         })?;
 
         // Generate unique filename
@@ -274,7 +306,10 @@ impl VideoProcessor {
         
         // For streaming, we'll use a temporary name
         let temp_filename = format!("temp_video_{}.mp4", timestamp);
-        let temp_path = format!("{}/{}", output_dir, temp_filename);
+        // Sanitize the filename
+        let sanitized_temp_filename = sanitize_filename(&temp_filename)
+            .ok_or_else(|| AppError::IoError(std::io::Error::other("Invalid filename")))?;
+        let temp_path = format!("{}/{}", output_dir, sanitized_temp_filename);
 
         // Download video with yt-dlp directly to MP4 format for better compatibility
         let mut cmd = AsyncCommand::new("yt-dlp");
@@ -294,7 +329,7 @@ impl VideoProcessor {
 
         let output = cmd.output().await.map_err(|e| {
             tracing::error!("Failed to execute yt-dlp: {}", e);
-            AppError::IoError(e)
+            AppError::IoError(std::io::Error::other("Video download failed"))
         })?;
 
         if !output.status.success() {
@@ -327,10 +362,7 @@ impl VideoProcessor {
                 )));
             }
 
-            return Err(AppError::IoError(std::io::Error::other(format!(
-                "Video download failed: {}",
-                stderr
-            ))));
+            return Err(AppError::IoError(std::io::Error::other("Video download failed")));
         }
 
         // Check if the temp file was created
@@ -349,7 +381,10 @@ impl VideoProcessor {
                 
                 // Generate output filename
                 let output_filename = format!("video_{}_captioned.mp4", timestamp);
-                let output_path = format!("{}/{}", output_dir, output_filename);
+                // Sanitize the filename
+                let sanitized_output_filename = sanitize_filename(&output_filename)
+                    .ok_or_else(|| AppError::IoError(std::io::Error::other("Invalid filename")))?;
+                let output_path = format!("{}/{}", output_dir, sanitized_output_filename);
                 
                 // Process video with caption
                 match Self::add_caption_overlay(&temp_path, &output_path, caption_text).await {
@@ -359,7 +394,7 @@ impl VideoProcessor {
                             let _ = std::fs::remove_file(&temp_path);
                         });
                         tracing::info!("Video processing completed: {}", output_path);
-                        return Ok(output_filename);
+                        return Ok(sanitized_output_filename);
                     }
                     Err(e) => {
                         // Clean up files on error
@@ -375,7 +410,10 @@ impl VideoProcessor {
 
         // No caption processing needed, rename temp file to final name
         let final_filename = format!("video_{}.mp4", timestamp);
-        let final_path = format!("{}/{}", output_dir, final_filename);
+        // Sanitize the filename
+        let sanitized_final_filename = sanitize_filename(&final_filename)
+            .ok_or_else(|| AppError::IoError(std::io::Error::other("Invalid filename")))?;
+        let final_path = format!("{}/{}", output_dir, sanitized_final_filename);
         
         tokio::fs::rename(&temp_path, &final_path).await.map_err(|e| {
             tracing::error!("Failed to rename video file: {}", e);
@@ -383,11 +421,11 @@ impl VideoProcessor {
             tokio::task::spawn_blocking(move || {
                 let _ = std::fs::remove_file(&temp_path);
             });
-            AppError::IoError(e)
+            AppError::IoError(std::io::Error::other("Failed to save video file"))
         })?;
 
         tracing::info!("Video download completed: {}", final_path);
-        Ok(final_filename)
+        Ok(sanitized_final_filename)
     }
 
     /// Stream video download directly to processing (most efficient approach)
@@ -412,10 +450,17 @@ impl VideoProcessor {
             )));
         }
 
+        // Validate output directory
+        if output_dir != "uploads" {
+            return Err(AppError::IoError(std::io::Error::other(
+                "Invalid output directory",
+            )));
+        }
+
         // Create output directory
         tokio::fs::create_dir_all(output_dir).await.map_err(|e| {
             tracing::error!("Failed to create output directory: {}", e);
-            AppError::IoError(e)
+            AppError::IoError(std::io::Error::other("Failed to create output directory"))
         })?;
 
         // Generate unique filename
@@ -428,7 +473,10 @@ impl VideoProcessor {
         } else {
             format!("video_{}.mp4", timestamp)
         };
-        let output_path = format!("{}/{}", output_dir, output_filename);
+        // Sanitize the filename
+        let sanitized_output_filename = sanitize_filename(&output_filename)
+            .ok_or_else(|| AppError::IoError(std::io::Error::other("Invalid filename")))?;
+        let output_path = format!("{}/{}", output_dir, sanitized_output_filename);
 
         // First, download the video using yt-dlp
         tracing::info!("Downloading video: {}", url);
@@ -447,7 +495,7 @@ impl VideoProcessor {
 
         let download_output = download_cmd.output().await.map_err(|e| {
             tracing::error!("Failed to execute yt-dlp: {}", e);
-            AppError::IoError(e)
+            AppError::IoError(std::io::Error::other("Video download failed"))
         })?;
 
         if !download_output.status.success() {
@@ -478,10 +526,7 @@ impl VideoProcessor {
                 )));
             }
 
-            return Err(AppError::IoError(std::io::Error::other(format!(
-                "Video download failed: {}",
-                stderr
-            ))));
+            return Err(AppError::IoError(std::io::Error::other("Video download failed")));
         }
 
         // Check if the file was created
@@ -500,7 +545,10 @@ impl VideoProcessor {
                 
                 // Generate processed filename
                 let processed_filename = format!("video_{}_captioned_final.mp4", timestamp);
-                let processed_path = format!("{}/{}", output_dir, processed_filename);
+                // Sanitize the filename
+                let sanitized_processed_filename = sanitize_filename(&processed_filename)
+                    .ok_or_else(|| AppError::IoError(std::io::Error::other("Invalid filename")))?;
+                let processed_path = format!("{}/{}", output_dir, sanitized_processed_filename);
                 
                 // Process video with caption
                 match Self::add_caption_overlay(&output_path, &processed_path, caption_text).await {
@@ -508,7 +556,7 @@ impl VideoProcessor {
                         // Remove original file to save space
                         let _ = tokio::fs::remove_file(&output_path).await;
                         tracing::info!("Video processing completed: {}", processed_path);
-                        return Ok(processed_filename);
+                        return Ok(sanitized_processed_filename);
                     }
                     Err(e) => {
                         // Clean up files on error
@@ -521,7 +569,7 @@ impl VideoProcessor {
         }
 
         tracing::info!("Video processing completed successfully: {}", output_path);
-        Ok(output_filename)
+        Ok(sanitized_output_filename)
     }
 
     /// Get video metadata from supported platforms (YouTube, TikTok)
@@ -549,7 +597,7 @@ impl VideoProcessor {
 
         let output = cmd.output().await.map_err(|e| {
             tracing::error!("Failed to execute yt-dlp for info: {}", e);
-            AppError::IoError(e)
+            AppError::IoError(std::io::Error::other("Failed to get video information"))
         })?;
 
         if !output.status.success() {
@@ -577,10 +625,7 @@ impl VideoProcessor {
                 )));
             }
 
-            return Err(AppError::IoError(std::io::Error::other(format!(
-                "Video info extraction failed: {}",
-                stderr
-            ))));
+            return Err(AppError::IoError(std::io::Error::other("Failed to get video information")));
         }
 
         let json_str = String::from_utf8_lossy(&output.stdout);
@@ -614,6 +659,14 @@ impl VideoProcessor {
 
     /// Get video information (width, height, duration)
     async fn get_video_info(input_path: &str) -> Result<VideoInfo, AppError> {
+        // Sanitize and validate input path
+        let input_filename = sanitize_filename(input_path)
+            .ok_or_else(|| AppError::IoError(std::io::Error::other("Invalid input filename")))?;
+            
+        // Validate that the path is within the uploads directory
+        let validated_input_path = validate_file_path("uploads", &input_filename)
+            .ok_or_else(|| AppError::IoError(std::io::Error::other("Invalid input file path")))?;
+
         let mut cmd = AsyncCommand::new("ffprobe");
         cmd.args([
             "-v",
@@ -622,12 +675,12 @@ impl VideoProcessor {
             "json",
             "-show_format",
             "-show_streams",
-            input_path,
+            &validated_input_path,
         ]);
 
         let output = cmd.output().await.map_err(|e| {
             tracing::error!("Failed to execute ffprobe: {}", e);
-            AppError::IoError(e)
+            AppError::IoError(std::io::Error::other("Failed to get video information"))
         })?;
 
         if !output.status.success() {

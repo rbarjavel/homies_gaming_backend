@@ -2,6 +2,7 @@ use crate::{
     errors::AppError,
     state::{MediaInfo, MediaType, MediaViewState, SoundInfo},
     templates::UploadTemplate,
+    utils::{sanitize_filename, validate_file_path},
     video_processing::VideoProcessor,
 };
 use askama::Template;
@@ -231,8 +232,29 @@ async fn read_field_as_string(mut field: warp::multipart::Part) -> Result<String
 
 // Save uploaded file to disk
 async fn save_uploaded_file(filename: &str, file_data: &[u8]) -> Result<u64, Rejection> {
-    let file_path = format!("uploads/{}", filename);
-    tracing::info!("Saving uploaded file: {} ({} bytes)", filename, file_data.len());
+    // Sanitize the filename to prevent path traversal
+    let sanitized_filename = sanitize_filename(filename)
+        .ok_or_else(|| {
+            tracing::error!("Invalid filename provided: {}", filename);
+            warp::reject::custom(AppError::IoError(std::io::Error::other("Invalid filename")))
+        })?;
+    
+    // Validate the file path to ensure it's within the uploads directory
+    let file_path = validate_file_path("uploads", &sanitized_filename)
+        .ok_or_else(|| {
+            tracing::error!("Invalid file path: {}", filename);
+            warp::reject::custom(AppError::IoError(std::io::Error::other("Invalid file path")))
+        })?;
+    
+    // Validate file content matches extension
+    if !is_valid_file_content(&sanitized_filename, file_data) {
+        tracing::error!("File content does not match extension for: {}", sanitized_filename);
+        return Err(warp::reject::custom(AppError::IoError(std::io::Error::other(
+            "File content does not match file extension"
+        ))));
+    }
+    
+    tracing::info!("Saving uploaded file: {} ({} bytes)", sanitized_filename, file_data.len());
 
     // Create directory
     tokio::fs::create_dir_all("uploads").await.map_err(|e| {
@@ -384,8 +406,27 @@ pub async fn upload_sound(
             ));
         }
 
-        // Save sound file to disk
-        let file_path = format!("sounds/{}", original_filename);
+        // Sanitize the filename to prevent path traversal
+        let sanitized_filename = sanitize_filename(&original_filename)
+            .ok_or_else(|| {
+                tracing::error!("Invalid sound filename provided: {}", original_filename);
+                warp::reject::custom(AppError::IoError(std::io::Error::other("Invalid filename")))
+            })?;
+        
+        // Validate the file path to ensure it's within the sounds directory
+        let file_path = validate_file_path("sounds", &sanitized_filename)
+            .ok_or_else(|| {
+                tracing::error!("Invalid sound file path: {}", original_filename);
+                warp::reject::custom(AppError::IoError(std::io::Error::other("Invalid file path")))
+            })?;
+            
+        // Validate file content matches extension
+        if !is_valid_sound_content(&sanitized_filename, &file_data) {
+            tracing::error!("Sound file content does not match extension for: {}", sanitized_filename);
+            return Err(warp::reject::custom(AppError::IoError(std::io::Error::other(
+                "Sound file content does not match file extension"
+            ))));
+        }
 
         // Create directory
         tokio::fs::create_dir_all("sounds").await.map_err(|e| {
@@ -407,19 +448,19 @@ pub async fn upload_sound(
 
         // Update shared state with new sound
         let sound_info = SoundInfo {
-            filename: original_filename.clone(),
+            filename: sanitized_filename.clone(),
             upload_time: std::time::SystemTime::now(),
             marked_for_deletion: false,
         };
 
         let mut state = state.write().await;
         state.set_last_sound(sound_info);
-        tracing::info!("New sound uploaded: {}", original_filename);
-        websocket::broadcast_new_song(&ws_clients, original_filename.clone()).await;
+        tracing::info!("New sound uploaded: {}", sanitized_filename);
+        websocket::broadcast_new_song(&ws_clients, sanitized_filename.clone()).await;
 
         return Ok(warp::reply::html(format!(
             r#"<p>Sound {} uploaded successfully!</p>"#,
-            original_filename
+            sanitized_filename
         )));
     }
 
@@ -569,4 +610,56 @@ pub async fn upload_video_url(
         r#"<p>Downloaded "{}" successfully!<br/>Duration: {} seconds{}</p>"#,
         video_info.title, video_info.duration, caption_message
     )))
+}
+
+/// Validate file content matches the file extension
+fn is_valid_file_content(filename: &str, data: &[u8]) -> bool {
+    let ext = filename.split('.').next_back().unwrap_or("").to_lowercase();
+    
+    match ext.as_str() {
+        // Image formats
+        "jpg" | "jpeg" => data.starts_with(&[0xFF, 0xD8, 0xFF]),
+        "png" => data.starts_with(&[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]),
+        "gif" => data.starts_with(b"GIF87a") || data.starts_with(b"GIF89a"),
+        "webp" => data.starts_with(b"RIFF") && data.len() > 12 && data[8..12] == *b"WEBP",
+        "bmp" => data.starts_with(b"BM"),
+        "svg" => data.starts_with(b"<?xml") || data.starts_with(b"<svg"),
+        
+        // Video formats
+        "mp4" => data.starts_with(b"\x00\x00\x00\x18ftypmp42") || 
+                 data.starts_with(b"\x00\x00\x00\x20ftypmp42") ||
+                 data.starts_with(b"\x00\x00\x00\x18ftypmp41") ||
+                 data.starts_with(b"\x00\x00\x00\x18ftypiso5"),
+        "mov" | "m4v" => data.starts_with(b"\x00\x00\x00\x14ftypqt") || 
+                         data.starts_with(b"\x00\x00\x00\x20ftypM4V"),
+        "avi" => data.starts_with(b"RIFF") && data.len() > 8 && data[8..12] == *b"AVI ",
+        "webm" => data.starts_with(b"\x1A\x45\xDF\xA3"),
+        "mkv" => data.starts_with(b"\x1A\x45\xDF\xA3"),
+        "ogg" => data.starts_with(b"OggS"),
+        "wmv" => data.starts_with(b"\x30\x26\xB2\x75\x8E\x66\xCF\x11"),
+        "flv" => data.starts_with(b"FLV\x01"),
+        
+        // If we don't recognize the extension, we'll allow it (better to be permissive than restrictive)
+        _ => true,
+    }
+}
+
+/// Validate sound file content matches the file extension
+fn is_valid_sound_content(filename: &str, data: &[u8]) -> bool {
+    let ext = filename.split('.').next_back().unwrap_or("").to_lowercase();
+    
+    match ext.as_str() {
+        "mp3" => data.starts_with(&[0xFF, 0xFB]) || // MP3 with ID3v2
+                 data.starts_with(&[0x49, 0x44, 0x33]) || // ID3v2 header
+                 data.starts_with(&[0xFF, 0xF3]) || // MP3 without ID3
+                 data.starts_with(&[0xFF, 0xF2]),
+        "wav" => data.starts_with(b"RIFF") && data.len() > 8 && data[8..12] == *b"WAVE",
+        "ogg" => data.starts_with(b"OggS"),
+        "flac" => data.starts_with(b"fLaC"),
+        "m4a" => data.starts_with(b"\x00\x00\x00\x20ftypM4A") ||
+                 data.starts_with(b"\x00\x00\x00\x18ftypmp42") ||
+                 data.starts_with(b"\x00\x00\x00\x18ftypM4A "),
+        // If we don't recognize the extension, we'll allow it
+        _ => true,
+    }
 }

@@ -2,6 +2,7 @@ mod errors;
 mod handlers;
 mod state;
 mod templates;
+mod utils;
 mod video_processing;
 mod websocket; // Add this
 
