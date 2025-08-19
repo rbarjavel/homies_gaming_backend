@@ -13,15 +13,19 @@ use warp::Filter;
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
+    tracing::info!("Starting Homies Gaming Backend server");
 
     // Create shared state
     let media_state = Arc::new(RwLock::new(state::MediaViewState::new()));
+    tracing::info!("Media state initialized");
 
     // Create WebSocket state
     let ws_clients = websocket::create_ws_state();
+    tracing::info!("WebSocket state initialized");
 
     // Start background cleanup task
     start_cleanup_task(media_state.clone());
+    tracing::info!("Background cleanup task started");
 
     // Clone for different routes
     let media_state_upload = media_state.clone();
@@ -101,6 +105,7 @@ async fn main() {
         .or(uploads_dir)
         .or(sounds_dir);
 
+    tracing::info!("Server running on http://0.0.0.0:3030");
     println!("Server running on http://0.0.0.0:3030");
     warp::serve(routes).run(([0, 0, 0, 0], 3030)).await;
 }

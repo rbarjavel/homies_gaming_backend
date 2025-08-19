@@ -13,6 +13,7 @@ pub async fn last_media(
     addr: Option<SocketAddr>,
     state: SharedState,
 ) -> Result<impl Reply, Rejection> {
+    tracing::info!("Received request for last media");
     // Get client IP
     sleep(Duration::from_millis(100)).await;
     let client_ip = addr.map(|socket_addr| socket_addr.ip());
@@ -22,11 +23,14 @@ pub async fn last_media(
     // Get media for this IP (only if not viewed yet and not deleted)
     let (media_info, should_mark_viewed) = if let Some(ip) = client_ip {
         if let Some(media) = state_guard.get_last_media_for_ip(ip) {
+            tracing::info!("Found media for IP: {:?}", ip);
             (Some(media.clone()), true)
         } else {
+            tracing::info!("No media found for IP: {:?}", ip);
             (None, false)
         }
     } else {
+        tracing::warn!("No client IP address available");
         (None, false)
     };
 
@@ -38,6 +42,7 @@ pub async fn last_media(
             let mut state_guard = state.write().await; // Acquire write lock
             if let Some(ip) = client_ip {
                 state_guard.mark_viewed(&filename, ip);
+                tracing::info!("Marked media as viewed: {} for IP: {:?}", filename, ip);
             }
         }
     } else {
@@ -50,7 +55,10 @@ pub async fn last_media(
     };
 
     match template.render() {
-        Ok(html) => Ok(warp::reply::html(html)),
+        Ok(html) => {
+            tracing::info!("Successfully rendered media content template");
+            Ok(warp::reply::html(html))
+        },
         Err(e) => {
             tracing::error!("Template render error: {}", e);
             Err(warp::reject::custom(AppError::RenderError(e)))
@@ -59,12 +67,16 @@ pub async fn last_media(
 }
 
 pub async fn index_page() -> Result<impl Reply, Rejection> {
+    tracing::info!("Serving index page");
     use crate::templates::IndexTemplate;
     use askama::Template;
 
     let template = IndexTemplate;
     match template.render() {
-        Ok(html) => Ok(warp::reply::html(html)),
+        Ok(html) => {
+            tracing::info!("Successfully rendered index template");
+            Ok(warp::reply::html(html))
+        },
         Err(e) => {
             tracing::error!("Template render error: {}", e);
             Err(warp::reject::custom(AppError::RenderError(e)))

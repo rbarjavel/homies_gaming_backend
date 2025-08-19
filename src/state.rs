@@ -41,6 +41,7 @@ impl MediaViewState {
     }
 
     pub fn set_last_media(&mut self, media: MediaInfo) {
+        tracing::info!("Setting last media: {} ({:?})", media.filename, media.media_type);
         self.last_media = Some(media);
     }
 
@@ -48,7 +49,7 @@ impl MediaViewState {
         let viewed_set = self
             .viewed_by
             .entry(filename.to_string())
-            .or_insert_with(HashSet::new);
+            .or_default(); // Use or_default() instead of or_insert_with(HashSet::new)
         viewed_set.insert(ip)
         // Returns true if IP was newly inserted (first view), false if already existed
     }
