@@ -2,6 +2,7 @@ package event
 
 import (
 	"fmt"
+	"io"
 	"live_chat/src/constant"
 	"log"
 	"net/http"
@@ -38,7 +39,7 @@ func DispatchEvent(json map[string]string) {
 		}
 	case "video":
 		if _, ok := json["url"]; ok {
-			playVideo("http://" + constant.IP_ADDR_SERVER + json["url"])
+			playVideo("http://" + constant.IP_ADDR_SERVER + json["url"], json["caption"], json["width"], json["height"])
 		} else {
 			log.Println("no url found")
 		}
@@ -134,7 +135,7 @@ func playSong(url string) {
 	}()
 }
 
-func playVideo(url string) {
+func playVideo(url string, caption string, width string, height string) {
 	var cmd *exec.Cmd
 
 	switch runtime.GOOS {
@@ -150,12 +151,144 @@ func playVideo(url string) {
 		cmd.Dir = exeDir
 	case "darwin":
 		cmd = exec.Command("./mpv/macos/mpv", "--fullscreen", url)
-	default:
-		cmd = exec.Command("./mpv/linux/mpv", "--fullscreen", url)
+	default: // Linux
+		videoFile := downloadVideo(url)
+		if videoFile == "" {
+			log.Println("Failed to download video")
+			return
+		}
+
+		// Get working directory
+		wd, err := os.Getwd()
+		if err != nil {
+			log.Println("Impossible d'obtenir le répertoire de travail:", err)
+			return
+		}
+
+		godotPath := filepath.Join(wd, "godot_bin", "linux", "Homies Video Player.x86_64")
+
+		// Copy video to godot directory to ensure library access
+		godotVideoPath := filepath.Join(wd, "godot_bin", "linux", "current_video.mp4")
+		err = copyFile(videoFile, godotVideoPath)
+		if err != nil {
+			log.Printf("Failed to copy video to godot directory: %v", err)
+			return
+		}
+
+		log.Println("=====================================")
+		log.Println(godotPath + " " + godotVideoPath + " " + caption + " " + width + " " + height)
+		log.Println("=====================================")
+
+		if _, err := os.Stat(godotPath); os.IsNotExist(err) {
+			log.Printf("Godot executable not found: %s", godotPath)
+			return
+		}
+
+		cmd = exec.Command(godotPath, godotVideoPath, caption, width, height)
+		cmd.Dir = filepath.Join(wd, "godot_bin", "linux")
+
+		// Set library path properly
+		env := os.Environ()
+		libraryPath := filepath.Join(wd, "godot_bin", "linux")
+		env = append(env, "LD_LIBRARY_PATH="+libraryPath)
+		cmd.Env = env
 	}
 
+	// Add nil check
+	if cmd == nil {
+		log.Println("Command is nil")
+		return
+	}
+
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 	err := cmd.Run()
 	if err != nil {
-		log.Println("Impossible d'ouvrir la video:", err)
+		log.Printf("Command failed: %v", err)
+		return
 	}
+
+	// Cleanup copied video file
+	if runtime.GOOS == "linux" {
+		wd, _ := os.Getwd()
+		godotVideoPath := filepath.Join(wd, "godot_bin", "linux", "current_video.mp4")
+		os.Remove(godotVideoPath)
+	}
+}
+
+// Helper function to copy files
+func copyFile(src, dst string) error {
+	sourceFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer sourceFile.Close()
+
+	destFile, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer destFile.Close()
+
+	_, err = io.Copy(destFile, sourceFile)
+	if err != nil {
+		return err
+	}
+
+	return destFile.Sync()
+}
+
+func downloadVideo(url string) string {
+	// Get system temp directory
+	tempDir := os.TempDir()
+
+	// Create temporary file with proper naming
+	tmpFile, err := os.CreateTemp(tempDir, "video_*.mp4")
+	if err != nil {
+		log.Println("Failed to create temp file:", err)
+		return ""
+	}
+	defer tmpFile.Close()
+
+	// Download video
+	client := &http.Client{
+		Timeout: 300 * time.Second, // 5 minute timeout
+	}
+	resp, err := client.Get(url)
+	if err != nil {
+		log.Println("Failed to download video:", err)
+		return ""
+	}
+	defer resp.Body.Close()
+
+	// Check if response is valid
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("Failed to download video: HTTP %d", resp.StatusCode)
+		return ""
+	}
+
+	// Copy video data to temp file
+	_, err = io.Copy(tmpFile, resp.Body)
+	if err != nil {
+		log.Println("Failed to save video:", err)
+		return ""
+	}
+
+	// Ensure file is written to disk
+	tmpFile.Sync()
+
+	// Get the actual file path
+	filePath := tmpFile.Name()
+
+	// Normalize path separators for the current platform
+	filePath = filepath.Clean(filePath)
+
+	// Set appropriate permissions
+	err = os.Chmod(filePath, 0644)
+	if err != nil && runtime.GOOS != "windows" {
+		log.Println("Warning: Failed to set file permissions:", err)
+	}
+
+	log.Printf("Video downloaded to: %s", filePath)
+	return filePath
 }

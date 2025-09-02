@@ -128,7 +128,7 @@ fn with_ws_state(
 // Background cleanup task
 fn start_cleanup_task(state: Arc<RwLock<state::MediaViewState>>) {
     tokio::spawn(async move {
-        let deletion_threshold = Duration::from_secs(10);
+        let deletion_threshold = Duration::from_secs(15);
 
         loop {
             tokio::time::sleep(Duration::from_secs(1)).await;

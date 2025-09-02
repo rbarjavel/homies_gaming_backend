@@ -9,6 +9,8 @@ pub struct MediaInfo {
     pub upload_time: SystemTime,
     pub marked_for_deletion: bool,
     pub duration_secs: u64,
+    pub width: u16,
+    pub height: u16,
     pub caption: String,
 }
 

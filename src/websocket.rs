@@ -64,12 +64,32 @@ pub async fn broadcast_new_browser_raw(clients: &WsClients, url: String) {
     tracing::info!("Broadcast new browser raw result: {:?}", result);
 }
 
-pub async fn broadcast_video_event(clients: &WsClients, filename: String) {
+pub async fn broadcast_upload_status(clients: &WsClients, message: String, is_error: bool) {
+    tracing::info!("Broadcasting upload status: {} (error: {})", message, is_error);
+    let message_json = json!({
+        "event": "upload_status",
+        "message": message,
+        "is_error": is_error,
+    });
+
+    let message_string = message_json.to_string();
+    let ws_message = warp::ws::Message::text(message_string);
+
+    // Get the sender and send message
+    let sender = clients.read().await;
+    let result = sender.send(ws_message);
+    tracing::info!("Broadcast upload status result: {:?}", result);
+}
+
+pub async fn broadcast_video_event_with_caption(clients: &WsClients, filename: String, caption: String, width: u16, heigth: u16) {
     let video_url = format!("/uploads/{}", filename);
-    tracing::info!("Broadcasting video event for: {}", video_url);
+    tracing::info!("Broadcasting video event for: {} with caption: {}", video_url, caption);
     let message_json = json!({
         "event": "video",
-        "url": video_url
+        "url": video_url,
+        "caption": caption,
+        "width": width.to_string(),
+        "height": heigth.to_string(),
     });
 
     let message_string = message_json.to_string();
@@ -80,7 +100,7 @@ pub async fn broadcast_video_event(clients: &WsClients, filename: String) {
     let result = sender.send(ws_message);
     tracing::info!("Broadcast video event result: {:?}", result);
 
-    tracing::info!("Broadcasted video event for: {}", video_url);
+    tracing::info!("Broadcasted video event for: {} with caption: {}", video_url, caption);
 }
 
 // WebSocket connection handler

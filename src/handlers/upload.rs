@@ -12,12 +12,12 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::{fs::File, io::AsyncWriteExt};
 use warp::{Rejection, Reply, multipart::FormData};
+use std::path::Path;
 
 use crate::websocket;
 
 // Shared state type
 pub type SharedState = Arc<RwLock<MediaViewState>>;
-
 pub async fn upload_form() -> Result<impl Reply, Rejection> {
     tracing::info!("Serving upload form");
     let template = UploadTemplate;
@@ -40,13 +40,9 @@ pub async fn upload_image(
     ws_clients: websocket::WsClients,
 ) -> Result<impl Reply, Rejection> {
     tracing::info!("Processing image upload");
-    // Parse form data
     let form_data = parse_form_data(&mut form).await?;
-
-    // Only proceed if we have a filename
     if !form_data.filename.is_empty() {
         tracing::info!("Processing file: {}", form_data.filename);
-        // Validate file type
         if !is_valid_media_type(&form_data.filename) {
             tracing::warn!("Invalid file type uploaded: {}", form_data.filename);
             return Ok(warp::reply::html(
@@ -54,67 +50,67 @@ pub async fn upload_image(
             ));
         }
 
-        // Save file to disk
         let file_size = save_uploaded_file(&form_data.filename, &form_data.file_data).await?;
         tracing::info!("Saved file to disk, size: {} bytes", file_size);
 
-        // Check file size limit
         if file_size > 100 * 1024 * 1024 {
-            // 100MB
             tracing::warn!("File too large: {} bytes", file_size);
             return Ok(warp::reply::html(
                 "<p>File too large! Maximum size is 100MB.</p>".to_string(),
             ));
         }
 
-        // Store values before move
-        let mut filename = form_data.filename.clone();
+        let filename = form_data.filename.clone();
         let caption = form_data.caption.clone();
 
-        // Determine media type and adjust duration
         let media_type = detect_media_type(&form_data.filename);
         tracing::info!("Detected media type: {:?}", media_type);
         let final_duration = match media_type {
-            MediaType::Video => 999999, // Special value for videos (no auto-refresh)
+            MediaType::Video => 999999,
             MediaType::Image => form_data.duration_secs,
         };
 
-        // Process video with caption overlay if it's a video and has a caption
-        if media_type == MediaType::Video && !caption.is_empty() {
-            tracing::info!("Processing video with caption overlay");
-            filename = process_video_with_caption(&filename, &caption).await?;
-        }
+        // Clone values for the background task
+        let filename_clone = filename.clone();
+        let caption_clone = caption.clone();
+        let state_clone = state.clone();
+        let ws_clients_clone = ws_clients.clone();
+        let media_type_clone = media_type;
 
-        // Create media info (use processed filename and empty caption for videos since it's now embedded)
-        let final_caption = if media_type == MediaType::Video && !caption.is_empty() {
-            String::new() // Caption is now embedded in video, don't show separately
-        } else {
-            caption.clone()
-        };
+        // Spawn background task for processing
+        tokio::spawn(async move {
+            if media_type_clone == MediaType::Video {
+                tracing::info!("Sending video directly without conversion");
+                let media_info =
+                    create_media_info(filename_clone.clone(), media_type_clone, final_duration, 0, 0, caption_clone.clone());
 
-        let media_info =
-            create_media_info(filename.clone(), media_type, final_duration, final_caption);
+                let mut state = state_clone.write().await;
+                state.set_last_media(media_info);
 
-        // Update shared state and broadcast appropriate events
-        update_state_and_broadcast(state, media_info.clone(), ws_clients.clone()).await?;
+                websocket::broadcast_video_event_with_caption(&ws_clients_clone, filename_clone.clone(), caption_clone.clone(), 0, 0).await;
+            } else {
+                let media_info =
+                    create_media_info(filename_clone.clone(), media_type_clone, final_duration, 0, 0, caption_clone.clone());
+                // We need to handle the Result from update_state_and_broadcast
+                if let Err(e) = update_state_and_broadcast(state_clone, media_info.clone(), ws_clients_clone.clone()).await {
+                    tracing::error!("Failed to update state and broadcast: {:?}", e);
+                    // Broadcast error to clients
+                    websocket::broadcast_upload_status(&ws_clients_clone, format!("Image processing failed: {:?}", e), true).await;
+                }
+            }
+            
+            tracing::info!("Upload completed successfully: {}", filename_clone);
+        });
 
-        // If it's a video, also broadcast the video event
-        if media_type == MediaType::Video {
-            websocket::broadcast_video_event(&ws_clients, filename.clone()).await;
-        }
-
-        // Return success response
-        let caption_message = if media_type == MediaType::Video && !caption.is_empty() {
-            "<br/>Caption embedded in video"
-        } else if !caption.is_empty() {
+        let caption_message = if !caption.is_empty() {
             &format!("<br/>Caption: {}", caption)
         } else {
             ""
         };
 
-        tracing::info!("Upload completed successfully: {}", filename);
+        tracing::info!("Upload started, returning immediate response: {}", filename);
         return Ok(warp::reply::html(format!(
-            r#"<p>Uploaded {} successfully! Display duration: {} seconds{}</p>"#,
+            r#"<p>Upload started for {}! Display duration: {} seconds{}<br/>Processing in background...<br/><div class="progress-info" style="margin-top: 10px; font-size: 12px; color: #888888;">Check below for progress updates</div></p>"#,
             filename,
             if final_duration == 999999 {
                 "Full video".to_string()
@@ -238,14 +234,14 @@ async fn save_uploaded_file(filename: &str, file_data: &[u8]) -> Result<u64, Rej
             tracing::error!("Invalid filename provided: {}", filename);
             warp::reject::custom(AppError::IoError(std::io::Error::other("Invalid filename")))
         })?;
-    
+
     // Validate the file path to ensure it's within the uploads directory
     let file_path = validate_file_path("uploads", &sanitized_filename)
         .ok_or_else(|| {
             tracing::error!("Invalid file path: {}", filename);
             warp::reject::custom(AppError::IoError(std::io::Error::other("Invalid file path")))
         })?;
-    
+
     // Validate file content matches extension
     if !is_valid_file_content(&sanitized_filename, file_data) {
         tracing::error!("File content does not match extension for: {}", sanitized_filename);
@@ -253,9 +249,8 @@ async fn save_uploaded_file(filename: &str, file_data: &[u8]) -> Result<u64, Rej
             "File content does not match file extension"
         ))));
     }
-    
-    tracing::info!("Saving uploaded file: {} ({} bytes)", sanitized_filename, file_data.len());
 
+    tracing::info!("Saving uploaded file: {} ({} bytes)", sanitized_filename, file_data.len());
     // Create directory
     tokio::fs::create_dir_all("uploads").await.map_err(|e| {
         tracing::error!("Failed to create uploads directory: {}", e);
@@ -283,6 +278,8 @@ fn create_media_info(
     filename: String,
     media_type: MediaType,
     duration_secs: u64,
+    width: u16,
+    height: u16,
     caption: String,
 ) -> MediaInfo {
     MediaInfo {
@@ -291,6 +288,8 @@ fn create_media_info(
         upload_time: std::time::SystemTime::now(),
         marked_for_deletion: false,
         duration_secs,
+        width,
+        height,
         caption,
     }
 }
@@ -428,38 +427,56 @@ pub async fn upload_sound(
             ))));
         }
 
-        // Create directory
-        tokio::fs::create_dir_all("sounds").await.map_err(|e| {
-            tracing::error!("Failed to create sounds directory: {}", e);
-            warp::reject::custom(AppError::IoError(e))
-        })?;
+        // Clone values for the background task
+        let sanitized_filename_clone = sanitized_filename.clone();
+        let file_data_clone = file_data.clone();
+        let state_clone = state.clone();
+        let ws_clients_clone = ws_clients.clone();
 
-        // Create file
-        let mut file = File::create(&file_path).await.map_err(|e| {
-            tracing::error!("Failed to create sound file: {}", e);
-            warp::reject::custom(AppError::IoError(e))
-        })?;
+        // Spawn background task for processing
+        tokio::spawn(async move {
+            // Create directory
+            if let Err(e) = tokio::fs::create_dir_all("sounds").await {
+                tracing::error!("Failed to create sounds directory: {}", e);
+                // Broadcast error to clients
+                websocket::broadcast_upload_status(&ws_clients_clone, format!("Failed to create sounds directory: {}", e), true).await;
+                return;
+            }
 
-        // Write file data
-        file.write_all(&file_data).await.map_err(|e| {
-            tracing::error!("Failed to write sound file: {}", e);
-            warp::reject::custom(AppError::IoError(e))
-        })?;
+            // Create file
+            let mut file = match File::create(&file_path).await {
+                Ok(file) => file,
+                Err(e) => {
+                    tracing::error!("Failed to create sound file: {}", e);
+                    // Broadcast error to clients
+                    websocket::broadcast_upload_status(&ws_clients_clone, format!("Failed to create sound file: {}", e), true).await;
+                    return;
+                }
+            };
 
-        // Update shared state with new sound
-        let sound_info = SoundInfo {
-            filename: sanitized_filename.clone(),
-            upload_time: std::time::SystemTime::now(),
-            marked_for_deletion: false,
-        };
+            // Write file data
+            if let Err(e) = file.write_all(&file_data_clone).await {
+                tracing::error!("Failed to write sound file: {}", e);
+                // Broadcast error to clients
+                websocket::broadcast_upload_status(&ws_clients_clone, format!("Failed to write sound file: {}", e), true).await;
+                return;
+            }
 
-        let mut state = state.write().await;
-        state.set_last_sound(sound_info);
-        tracing::info!("New sound uploaded: {}", sanitized_filename);
-        websocket::broadcast_new_song(&ws_clients, sanitized_filename.clone()).await;
+            // Update shared state with new sound
+            let sound_info = SoundInfo {
+                filename: sanitized_filename_clone.clone(),
+                upload_time: std::time::SystemTime::now(),
+                marked_for_deletion: false,
+            };
+
+            let mut state = state_clone.write().await;
+            state.set_last_sound(sound_info);
+            tracing::info!("New sound uploaded: {}", sanitized_filename_clone);
+            websocket::broadcast_new_song(&ws_clients_clone, sanitized_filename_clone.clone()).await;
+        });
 
         return Ok(warp::reply::html(format!(
-            r#"<p>Sound {} uploaded successfully!</p>"#,
+            r#"<p>Sound {} upload started! Processing in background...<br/><div class="progress-info" style="margin-top: 10px; font-size: 12px; color: #888888;">Check below for progress updates</div></p>"#,
             sanitized_filename
         )));
     }
@@ -474,47 +491,6 @@ pub async fn upload_sound(
 fn is_valid_sound_type(filename: &str) -> bool {
     let ext = filename.split('.').next_back().unwrap_or("").to_lowercase();
     matches!(ext.as_str(), "mp3" | "wav" | "ogg" | "flac" | "m4a")
-}
-
-// Process video with caption overlay using ffmpeg
-async fn process_video_with_caption(
-    original_filename: &str,
-    caption: &str,
-) -> Result<String, Rejection> {
-    tracing::info!("Processing video with caption overlay: {}", original_filename);
-    // Check if ffmpeg is available
-    if !VideoProcessor::is_ffmpeg_available() {
-        tracing::warn!("FFmpeg not available, skipping caption overlay");
-        return Ok(original_filename.to_string());
-    }
-
-    // Generate output filename
-    let output_filename = VideoProcessor::generate_output_filename(original_filename);
-
-    let input_path = format!("uploads/{}", original_filename);
-    let output_path = format!("uploads/{}", output_filename);
-
-    // Process video with caption overlay
-    match VideoProcessor::add_caption_overlay(&input_path, &output_path, caption).await {
-        Ok(_) => {
-            tracing::info!(
-                "Successfully processed video with caption: {}",
-                output_filename
-            );
-
-            // Remove original file to save space
-            if let Err(e) = tokio::fs::remove_file(&input_path).await {
-                tracing::warn!("Failed to remove original video file {}: {}", input_path, e);
-            }
-
-            Ok(output_filename)
-        }
-        Err(e) => {
-            tracing::error!("Failed to process video with caption: {}", e);
-            // Return original filename if processing fails
-            Ok(original_filename.to_string())
-        }
-    }
 }
 
 // Video upload handler (YouTube, TikTok)
@@ -540,7 +516,6 @@ pub async fn upload_video_url(
 
     tracing::info!("Downloading video from URL: {}", video_url);
 
-    // Check if yt-dlp is available
     if !VideoProcessor::is_ytdlp_available() {
         tracing::error!("Video download not available. yt-dlp is not installed.");
         return Ok(warp::reply::html(
@@ -548,7 +523,7 @@ pub async fn upload_video_url(
         ));
     }
 
-    // Get video info first
+    // Get video metadata first to validate
     let video_info = match VideoProcessor::get_video_metadata(&video_url).await {
         Ok(info) => info,
         Err(e) => {
@@ -561,54 +536,78 @@ pub async fn upload_video_url(
     tracing::info!("Video info - Title: {}, Duration: {}s, Uploader: {}", 
                    video_info.title, video_info.duration, video_info.uploader);
 
-    // Check video duration (limit to reasonable length)
     if video_info.duration > 600 {
-        // 10 minutes
         tracing::warn!("Video too long: {} seconds", video_info.duration);
         return Ok(warp::reply::html(
             "<p>Video too long! Maximum duration is 10 minutes.</p>".to_string(),
         ));
     }
 
-    // Use streaming download and processing for better performance
-    let filename = match VideoProcessor::stream_process_video(&video_url, "uploads", 
-        if !caption.is_empty() { Some(&caption) } else { None }).await {
-        Ok(filename) => {
-            tracing::info!("Successfully downloaded and processed video: {}", filename);
-            filename
-        },
-        Err(e) => {
-            tracing::error!("Failed to download/process video: {}", e);
-            let user_error = VideoProcessor::get_user_friendly_error(&e.to_string(), &video_url);
-            return Ok(warp::reply::html(format!("<p>{}</p>", user_error)));
+    // Clone values for the background task
+    let video_url_clone = video_url.clone();
+    let caption_clone = caption.clone();
+    let state_clone = state.clone();
+    let ws_clients_clone = ws_clients.clone();
+    
+    // Spawn background task for video processing
+    tokio::spawn(async move {
+        match VideoProcessor::stream_convert_video(&video_url_clone, "uploads", 
+            if !caption_clone.is_empty() { Some(&caption_clone) } else { None }, Some(ws_clients_clone.clone())).await {
+            Ok(filename) => {
+                tracing::info!("Successfully downloaded video: {}", filename);
+                
+                let filepath = Path::new("./uploads/").join(&filename);
+                let (width, height) = match VideoProcessor::get_video_dimensions(filepath.to_str().unwrap()).await {
+                    Ok((w, h)) => (w, h),
+                    Err(e) => {
+                        tracing::error!("Failed to get video ratio: {}", e);
+                        let user_error = VideoProcessor::get_user_friendly_error(&e.to_string(), &video_url_clone);
+                        // Broadcast error to clients
+                        websocket::broadcast_upload_status(&ws_clients_clone, format!("Video processing failed: {}", user_error), true).await;
+                        return;
+                    }
+                };
+
+                // Create media info
+                let media_info = create_media_info(
+                    filename.clone(),
+                    MediaType::Video,
+                    999999,       // Videos play full duration
+                    width,
+                    height,
+                    caption_clone.clone(), // Store caption separately
+                );
+
+                // Update shared state
+                let mut state = state_clone.write().await;
+                state.set_last_media(media_info);
+
+                // Broadcast the video event for video downloads with caption
+                websocket::broadcast_video_event_with_caption(&ws_clients_clone, filename.clone(), caption_clone.clone(), width, height).await;
+                
+                tracing::info!("Video URL upload completed successfully");
+            },
+            Err(e) => {
+                tracing::error!("Failed to download video: {}", e);
+                let user_error = VideoProcessor::get_user_friendly_error(&e.to_string(), &video_url_clone);
+                // Broadcast error to clients
+                websocket::broadcast_upload_status(&ws_clients_clone, format!("Video download failed: {}", user_error), true).await;
+                tracing::error!("Video processing failed: {}", user_error);
+            }
         }
-    };
+    });
 
-    // Create media info
-    let media_info = create_media_info(
-        filename.clone(),
-        MediaType::Video,
-        999999,        // Videos play full duration
-        String::new(), // Caption is embedded if provided
-    );
-
-    // Update shared state and broadcast video event
-    update_state_and_broadcast(state, media_info, ws_clients.clone()).await?;
-
-    // Broadcast the video event for video downloads
-    websocket::broadcast_video_event(&ws_clients, filename.clone()).await;
-
-    // Return success response
+    // Return immediate response
     let caption_message = if !caption.is_empty() {
-        "<br/>Caption embedded in video"
+        &format!("<br/>Caption: {}", caption)
     } else {
         ""
     };
 
-    tracing::info!("Video URL upload completed successfully");
+    tracing::info!("Video URL upload started, returning immediate response");
     Ok(warp::reply::html(format!(
-        r#"<p>Downloaded "{}" successfully!<br/>Duration: {} seconds{}</p>"#,
-        video_info.title, video_info.duration, caption_message
+        r#"<p>Started downloading "{}"!<br/>This may take a few minutes...<br/><div class="progress-info" style="margin-top: 10px; font-size: 12px; color: #888888;">Check below for progress updates</div>{}</p>"#,
+        video_info.title, caption_message
     )))
 }
 
@@ -629,7 +628,9 @@ fn is_valid_file_content(filename: &str, data: &[u8]) -> bool {
         "mp4" => data.starts_with(b"\x00\x00\x00\x18ftypmp42") || 
                  data.starts_with(b"\x00\x00\x00\x20ftypmp42") ||
                  data.starts_with(b"\x00\x00\x00\x18ftypmp41") ||
-                 data.starts_with(b"\x00\x00\x00\x18ftypiso5"),
+                 data.starts_with(b"\x00\x00\x00\x18ftypiso5") ||
+                 data.starts_with(b"\x00\x00\x00\x1Cftypisom") || // Common MP4 variant
+                 data.starts_with(b"\x00\x00\x00\x20ftypisom"), // Another common MP4 variant
         "mov" | "m4v" => data.starts_with(b"\x00\x00\x00\x14ftypqt") || 
                          data.starts_with(b"\x00\x00\x00\x20ftypM4V"),
         "avi" => data.starts_with(b"RIFF") && data.len() > 8 && data[8..12] == *b"AVI ",

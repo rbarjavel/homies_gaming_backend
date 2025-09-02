@@ -283,8 +283,8 @@
         
         <!-- Tab Navigation -->
         <div class="tab-nav">
-            <button type="button" class="tab-btn active" onclick="showTab('file-tab')">[FILE] File Upload</button>
-            <button type="button" class="tab-btn" onclick="showTab('video-tab')">[URL] Video URL</button>
+            <button type="button" class="tab-btn active" onclick="showTab('file-tab', event)">[FILE] File Upload</button>
+            <button type="button" class="tab-btn" onclick="showTab('video-tab', event)">[URL] Video URL</button>
         </div>
         
         <!-- File Upload Tab -->
@@ -365,7 +365,7 @@
 </div>
 
 <script>
-function showTab(tabId) {
+function showTab(tabId, event) {
     // Hide all tab contents
     document.querySelectorAll('.tab-content').forEach(tab => {
         tab.classList.remove('active');
@@ -390,16 +390,273 @@ document.addEventListener('DOMContentLoaded', function() {
         form.addEventListener('submit', function() {
             const button = form.querySelector('button[type="submit"]');
             const originalText = button.innerHTML;
+            // Store original text as data attribute so we can restore it later
+            button.setAttribute('data-original-text', originalText);
             button.innerHTML = '<span class="loading"></span>[...] Processing...';
             button.disabled = true;
             
             // Re-enable button after 30 seconds as fallback
             setTimeout(() => {
-                button.innerHTML = originalText;
-                button.disabled = false;
+                if (button.disabled) {
+                    button.disabled = false;
+                    button.innerHTML = originalText;
+                }
             }, 30000);
         });
     });
+});
+
+// Handle WebSocket updates
+document.addEventListener('DOMContentLoaded', function() {
+    // Check if WebSocket is supported
+    if (window.WebSocket) {
+        const ws = new WebSocket(`ws://${window.location.host}/ws`);
+        
+        ws.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+            console.log('WebSocket message received:', data);
+            
+            // Handle different event types
+            if (data.event === 'browser_backend' || data.event === 'video' || data.event === 'song') {
+                // Show notification that processing is complete
+                const results = document.querySelectorAll('.result');
+                results.forEach(result => {
+                    // Check if this result has a progress bar
+                    const progressBar = result.querySelector('.progress-bar');
+                    if (progressBar) {
+                        // Update progress to 100% and show completion message
+                        const progressRow = progressBar.querySelector('#progress-row');
+                        const progressDisplay = progressBar.querySelector('.progress-display');
+                        if (progressRow) {
+                            progressRow.style.color = '#4CAF50';
+                            progressRow.innerHTML = '|##################################################| 100% COMPLETE';
+                        }
+                        if (progressDisplay) {
+                            progressDisplay.style.color = '#4CAF50';
+                            progressDisplay.textContent = 'Complete!';
+                        }
+                    } 
+                });
+
+                // Re-enable submit buttons
+                const submitButtons = document.querySelectorAll('button[type="submit"]');
+                submitButtons.forEach(button => {
+                    if (button.disabled) {
+                        button.disabled = false;
+                        // Restore original button text
+                        const originalText = button.getAttribute('data-original-text') || '[>>] Upload Media';
+                        button.innerHTML = originalText;
+                    }
+                });
+            } else if (data.event === 'browser_raw') {
+                // Handle error messages
+                const results = document.querySelectorAll('.result');
+                results.forEach(result => {
+                    // Check if this result has a progress bar
+                    const progressBar = result.querySelector('.progress-bar');
+                    if (progressBar) {
+                        // Mark progress bar as failed
+                        const progressRow = progressBar.querySelector('#progress-row');
+                        const progressDisplay = progressBar.querySelector('.progress-display');
+                        if (progressRow) {
+                            progressRow.style.color = '#f44336';
+                            progressRow.innerHTML = '|XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX| 100% FAILED';
+                        }
+                        if (progressDisplay) {
+                            progressDisplay.style.color = '#f44336';
+                            progressDisplay.textContent = 'ERROR: Failed';
+                        }
+                        
+                        // Add error message below
+                        const errorMsg = document.createElement('div');
+                        errorMsg.style.cssText = 'color: #f44336; margin-top: 10px; font-weight: bold;';
+                        errorMsg.textContent = `✗ ${data.url}`;
+                        result.appendChild(errorMsg);
+                    } else if (result.innerHTML.includes('Processing in background') || 
+                        result.innerHTML.includes('Started downloading')) {
+                        result.innerHTML = `<div style="color: #f44336;">✗ ${data.url}</div>`;
+                    }
+                });
+                
+                // Re-enable submit buttons
+                const submitButtons = document.querySelectorAll('button[type="submit"]');
+                submitButtons.forEach(button => {
+                    if (button.disabled) {
+                        button.disabled = false;
+                        // Restore original button text
+                        const originalText = button.getAttribute('data-original-text') || '[>>] Upload Media';
+                        button.innerHTML = originalText;
+                    }
+                });
+            } else if (data.event === 'upload_status') {
+                // Handle upload status messages with ASCII-themed progress bar
+                const results = document.querySelectorAll('.result');
+                results.forEach(result => {
+                    if (result.innerHTML.includes('Processing in background') || 
+                        result.innerHTML.includes('Started downloading')) {
+                        // Create progress bar if it doesn't exist
+                        let progressBar = result.querySelector('.progress-bar');
+                        if (!progressBar) {
+                            // Clear the result content
+                            result.innerHTML = '';
+                            
+                            // Create ASCII-themed progress bar container
+                            progressBar = document.createElement('div');
+                            progressBar.className = 'progress-bar';
+                            progressBar.style.cssText = `
+                                width: 100%;
+                                font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+                                font-size: 14px;
+                                line-height: 1.4;
+                                background: #0a0a0a;
+                                border: 1px solid #333333;
+                                padding: 10px;
+                                box-sizing: border-box;
+                            `;
+                            
+                            // Create progress bar header
+                            const progressHeader = document.createElement('div');
+                            progressHeader.style.cssText = `
+                                color: #888888;
+                                margin-bottom: 8px;
+                                font-size: 12px;
+                            `;
+                            
+                            // Create progress display
+                            const progressDisplay = document.createElement('div');
+                            progressDisplay.className = 'progress-display';
+                            progressDisplay.style.cssText = `
+                                color: #2196F3;
+                                margin-bottom: 8px;
+                                min-height: 20px;
+                            `;
+                            progressDisplay.textContent = 'Starting...';
+                            progressBar.appendChild(progressDisplay);
+                            
+                            // Create ASCII progress bar
+                            const asciiProgressBar = document.createElement('div');
+                            asciiProgressBar.className = 'ascii-progress-bar';
+                            asciiProgressBar.style.cssText = `
+                                background: #111111;
+                                border: 1px solid #333333;
+                                padding: 8px;
+                                margin-bottom: 10px;
+                                font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+                            `;
+                            asciiProgressBar.innerHTML = `
+                                <div style="color: #888888;">+--------------------------------------------------+</div>
+                                <div id="progress-row" style="color: #2196F3;">|::::::::::::::::::::::::::::::::::::::::::::::::::| 0%</div>
+                                <div style="color: #888888;">+--------------------------------------------------+</div>
+                            `;
+                            progressBar.appendChild(asciiProgressBar);
+                            
+                            // Create log container header
+                            const logHeader = document.createElement('div');
+                            logHeader.style.cssText = `
+                                color: #888888;
+                                margin: 10px 0 8px 0;
+                                font-size: 12px;
+                            `;
+                            logHeader.innerHTML = '[LOG]';
+                            progressBar.appendChild(logHeader);
+                            
+                            // Create log container below progress bar
+                            const logContainer = document.createElement('div');
+                            logContainer.className = 'progress-logs';
+                            logContainer.style.cssText = `
+                                width: 100%;
+                                max-height: 200px;
+                                overflow-y: auto;
+                                background: #111111;
+                                border: 1px solid #333333;
+                                padding: 8px;
+                                font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+                                font-size: 12px;
+                                white-space: pre-wrap;
+                            `;
+                            progressBar.appendChild(logContainer);
+                            
+                            result.appendChild(progressBar);
+                        }
+                        
+                        // Update progress based on message content
+                        const progressDisplay = progressBar.querySelector('.progress-display');
+                        const progressRow = progressBar.querySelector('#progress-row');
+                        const logContainer = result.querySelector('.progress-logs');
+                        
+                        // Add log entry
+                        const timestamp = new Date().toLocaleTimeString();
+                        let logEntry = '';
+                        if (data.is_error) {
+                            logEntry = `[${timestamp}] [ERR] ${data.message}\n`;
+                            // Mark progress bar as failed
+                            progressDisplay.style.color = '#f44336';
+                            progressDisplay.textContent = 'ERROR: Failed';
+                            if (progressRow) {
+                                progressRow.style.color = '#f44336';
+                                progressRow.innerHTML = '|XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX| 100% FAILED';
+                            }
+
+                            // Re-enable submit buttons on error
+                            const submitButtons = document.querySelectorAll('button[type=\"submit\"]');
+                            submitButtons.forEach(button => {
+                                if (button.disabled) {
+                                    button.disabled = false;
+                                    // Restore original button text
+                                    const originalText = button.getAttribute('data-original-text') || '[>>] Upload Media';
+                                    button.innerHTML = originalText;
+                                }
+                            });
+                        } else {
+                            logEntry = `[${timestamp}] [OK]  ${data.message}\n`;
+                            // Update progress (increment by 20% or set to 100% for completion)
+                            const currentWidth = progressRow ? parseInt(progressRow.textContent.match(/([0-9]+)%/)?.[1] || '0') : 0;
+                            let newWidth = Math.min(currentWidth + 20, 100);
+                            // If this is a completion message, set to 100%
+                            if (data.message.includes('complete') || data.message.includes('finished') || data.message.includes('done') || data.message.includes('successfully')) {
+                                newWidth = 100;
+                                progressDisplay.style.color = '#4CAF50';
+                                progressDisplay.textContent = 'Complete!';
+                                if (progressRow) {
+                                    progressRow.style.color = '#4CAF50';
+                                    progressRow.innerHTML = '|##################################################| 100% COMPLETE';
+                                }
+
+                                // Re-enable submit buttons on completion
+                                const submitButtons = document.querySelectorAll('button[type=\"submit\"]');
+                                submitButtons.forEach(button => {
+                                    if (button.disabled) {
+                                        button.disabled = false;
+                                        // Restore original button text
+                                        const originalText = button.getAttribute('data-original-text') || '[>>] Upload Media';
+                                        button.innerHTML = originalText;
+                                    }
+                                });
+                            } else {
+                                // Update ASCII progress bar
+                                if (progressRow) {
+                                    const filledBlocks = Math.floor(newWidth / 2); // 50 blocks total
+                                    const emptyBlocks = 50 - filledBlocks;
+                                    const progressBarContent = '#'.repeat(filledBlocks) + ':'.repeat(emptyBlocks);
+                                    progressRow.innerHTML = `|${progressBarContent}| ${newWidth}%`;
+                                }
+                                // Update progress display
+                                progressDisplay.style.color = '#2196F3';
+                                progressDisplay.textContent = `${data.message}`;
+                            }
+                        }
+
+                        // Add log entry to container
+                        logContainer.textContent += logEntry;
+                        logContainer.scrollTop = logContainer.scrollHeight;
+                    }
+                });
+            }
+        };
+        ws.onerror = function(error) {
+            console.error('WebSocket error:', error);
+        };
+    }
 });
 </script>
 
