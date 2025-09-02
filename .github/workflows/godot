@@ -1,0 +1,50 @@
+name: Build Godot Release Binary
+
+on:
+  push:
+    tags:
+      - 'g*'
+
+env:
+  GODOT_VERSION: 4.4
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install Godot
+        uses: CapsCollective/godot-actions/install-godot@v1.0
+        with:
+          godot-version: ${{ env.GODOT_VERSION }}
+          install-templates: true
+        id: install-godot
+
+      - name: Open Godot editor for reimport
+        run: |
+          cd client/godot_project/homies-video-player
+          ${{ steps.install-godot.outputs.godot-executable }} --editor --headless --quit || true
+
+      - name: Build Windows binary
+        run: |
+          cd client/godot_project/homies-video-player
+          ${{ steps.install-godot.outputs.godot-executable }} --headless --export-release "Windows Desktop" ./windows_export/homies-video-player.exe
+
+      - name: Build Linux binary
+        run: |
+          cd client/godot_project/homies-video-player
+          ${{ steps.install-godot.outputs.godot-executable }} --headless --export-release "Linux/X11" ./linux_export/homies-video-player.x86_64
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: windows
+          path: client/godot_project/homies-video-player/windows_export/*
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: linux
+          path: client/godot_project/homies-video-player/linux_export/*
