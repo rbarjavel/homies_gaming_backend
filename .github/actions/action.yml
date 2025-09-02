@@ -1,0 +1,6 @@
+- name: Install Godot
+  uses: ./.github/actions/install-godot-linux
+  with:
+    godot-version: ${{ env.GODOT_VERSION }}
+    install-templates: true
+  id: install-godot
