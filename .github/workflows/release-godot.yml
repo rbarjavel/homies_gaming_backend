@@ -38,13 +38,13 @@ jobs:
           ${{ steps.install-godot.outputs.godot-executable }} --headless --export-release "Linux/X11" ./linux_export/homies-video-player.x86_64
 
       - name: Upload Windows artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: windows
           path: client/godot_project/homies-video-player/windows_export/*
 
       - name: Upload Linux artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: linux
           path: client/godot_project/homies-video-player/linux_export/*
