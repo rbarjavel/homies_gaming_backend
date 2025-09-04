@@ -26,6 +26,29 @@ jobs:
       - name: Install sound dependence (Linux only)
         run: sudo apt install -y libasound2-dev
 
+      - name: Download latest homies-video-player release
+        run: |
+          curl -s https://api.github.com/repos/rbarjavel/homies_gaming_backend/releases/latest > release_info.json
+          # Extract download URLs
+          WINDOWS_URL=$(cat release_info.json | jq -r '.assets[] | select(.name | contains("homies-video-player-windows")) | .browser_download_url')
+          LINUX_URL=$(cat release_info.json | jq -r '.assets[] | select(.name | contains("homies-video-player-linux")) | .browser_download_url')
+
+          # Download and extract releases
+          mkdir -p client/godot_bin/windows
+          mkdir -p client/godot_bin/linux
+
+          # Windows
+          wget $WINDOWS_URL -O homies-windows.zip
+          unzip homies-windows.zip -d temp_windows
+          cp temp_windows/windows/homies-video-player.exe client/godot_bin/windows/
+          rm -rf temp_windows homies-windows.zip
+
+          # Linux
+          wget $LINUX_URL -O homies-linux.tar.gz
+          tar -xzf homies-linux.tar.gz -C temp_linux
+          cp temp_linux/linux/* client/godot_bin/linux/
+          rm -rf temp_linux homies-linux.tar.gz
+
       - name: Build release binaries
         run: |
           cd client
@@ -35,19 +58,19 @@ jobs:
         run: |
           cd client
           mv bin/live_chat_linux .
-          zip -r live_chat_linux.zip live_chat_linux mpv
+          zip -r live_chat_linux.zip live_chat_linux godot_bin mpv
 
       - name: Archive live_chat for macOS
         run: |
           cd client
           mv bin/live_chat_macos .
-          zip -r live_chat_macos.zip live_chat_macos mpv
+          zip -r live_chat_macos.zip live_chat_macos godot_bin mpv
 
       - name: Archive live_chat for Windows
         run: |
           cd client
           mv bin/live_chat_windows.exe .
-          zip -r live_chat_windows.zip live_chat_windows.exe mpv
+          zip -r live_chat_windows.zip live_chat_windows.exe godot_bin mpv
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
