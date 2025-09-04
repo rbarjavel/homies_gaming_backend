@@ -48,14 +48,15 @@ jobs:
       - name: Create Archives
         run: |
           cd build
-          zip -r ../${EXPORT_NAME}-windows.zip windows
-          tar -czf ../${EXPORT_NAME}-linux.tar.gz linux
+          zip -r ${EXPORT_NAME}-windows.zip windows
+          tar -czf ${EXPORT_NAME}-linux.tar.gz linux
+          ls -la *.zip *.tar.gz
       
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            ${EXPORT_NAME}-windows.zip
-            ${EXPORT_NAME}-linux.tar.gz
+            build/${EXPORT_NAME}-windows.zip
+            build/${EXPORT_NAME}-linux.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
