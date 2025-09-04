@@ -21,7 +21,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           lfs: true
-      
+
       - name: Install Export Templates
         run: |
           mkdir -p ~/.local/share/godot/export_templates
@@ -30,33 +30,33 @@ jobs:
           unzip Godot_v${GODOT_VERSION}-stable_mono_export_templates.tpz
           mkdir -p ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable.mono
           mv templates/* ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable.mono/
-      
+
       - name: Windows Build
         run: |
           mkdir -v -p build/windows
           EXPORT_DIR="$(readlink -f build)"
           cd $PROJECT_PATH
           godot --headless --verbose --export-release "Windows Desktop" "$EXPORT_DIR/windows/$EXPORT_NAME.exe"
-      
+
       - name: Linux Build
         run: |
           mkdir -v -p build/linux
           EXPORT_DIR="$(readlink -f build)"
           cd $PROJECT_PATH
           godot --headless --verbose --export-release "Linux" "$EXPORT_DIR/linux/$EXPORT_NAME.x86_64"
-      
+
       - name: Create Archives
         run: |
           cd build
           zip -r ${EXPORT_NAME}-windows.zip windows
           tar -czf ${EXPORT_NAME}-linux.tar.gz linux
           ls -la *.zip *.tar.gz
-      
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            build/${EXPORT_NAME}-windows.zip
-            build/${EXPORT_NAME}-linux.tar.gz
+            build/*.zip
+            build/*.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
