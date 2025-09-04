@@ -41,7 +41,7 @@ jobs:
           # Windows
           wget $WINDOWS_URL -O homies-windows.zip
           unzip homies-windows.zip -d temp_windows
-          cp temp_windows/windows/homies-video-player.exe client/godot_bin/windows/
+          cp temp_windows/windows/* client/godot_bin/windows/
           rm -rf temp_windows homies-windows.zip
 
           # Linux
