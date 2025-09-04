@@ -36,6 +36,7 @@ jobs:
           # Download and extract releases
           mkdir -p client/godot_bin/windows
           mkdir -p client/godot_bin/linux
+          mkdir -p temp_linux
 
           # Windows
           wget $WINDOWS_URL -O homies-windows.zip
