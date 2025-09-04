@@ -16,6 +16,8 @@ jobs:
     runs-on: ubuntu-22.04
     container:
       image: barichello/godot-ci:mono-4.4.1
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
