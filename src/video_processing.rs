@@ -74,8 +74,8 @@ impl VideoProcessor {
 
         let mut download_cmd = AsyncCommand::new("yt-dlp");
         download_cmd.args([
-            "--cookies",  // Use --cookies instead of --cookies-from-browser
-            "./firefox_cookies.txt", // Path to your cookies file
+            "--cookies-from-browser",
+            "chrome", // Use Chrome/Chromium instead of firefox
             "--format",
             "bv*[ext=mp4][height<=720]+ba[ext=m4a]/bv*[ext=mp4][height<=720]/b[ext=mp4]",
             "--output",
@@ -280,8 +280,8 @@ impl VideoProcessor {
 
         let mut cmd = AsyncCommand::new("yt-dlp");
         cmd.args([
-            "--cookies",  // Use --cookies instead of --cookies-from-browser
-            "./firefox_cookies.txt", // Path to your cookies file
+            "--cookies-from-browser",
+            "chrome", // Use Chrome/Chromium instead of firefox
             "--dump-json",
             "--no-playlist",
             url,
