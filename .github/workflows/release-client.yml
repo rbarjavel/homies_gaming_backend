@@ -29,9 +29,9 @@ jobs:
       - name: Download latest homies-video-player release
         run: |
           curl -s https://api.github.com/repos/rbarjavel/homies_gaming_backend/releases > release_info.json
-          # Extract download URLs
-          WINDOWS_URL=$(cat release_info.json | jq -r '.assets[] | select(.name | contains("homies-video-player-windows")) | .browser_download_url')
-          LINUX_URL=$(cat release_info.json | jq -r '.assets[] | select(.name | contains("homies-video-player-linux")) | .browser_download_url')
+          WINDOWS_URL=$(cat release_info.json | jq -r '.[] | select(.assets[]?.name? | contains("homies-video-player-windows")) | .assets[] | select(.name | contains("homies-video-player-windows")) | .browser_download_url' | head -1)
+
+          LINUX_URL=$(cat release_info.json | jq -r '.[] | select(.assets[]?.name? | contains("homies-video-player-linux")) | .assets[] | select(.name | contains("homies-video-player-linux")) | .browser_download_url' | head -1)
 
           # Download and extract releases
           mkdir -p client/godot_bin/windows
