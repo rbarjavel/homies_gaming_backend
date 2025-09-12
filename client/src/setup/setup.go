@@ -70,6 +70,8 @@ func SetupStartup() {
 	destPath := filepath.Join(destDir, filepath.Base(exPath))
 	mpvSourceDir := filepath.Join(filepath.Dir(exPath), "mpv")
 	mpvDestDir := filepath.Join(destDir, "mpv")
+	godotSourceDir := filepath.Join(filepath.Dir(exPath), "godot_bin")
+	godotDestDir := filepath.Join(destDir, "godot_bin")
 
 	if _, err := os.Stat(destPath); !os.IsNotExist(err) {
 		log.Println("good")
@@ -93,6 +95,17 @@ func SetupStartup() {
 			log.Println("Copie du dossier mpv terminée.")
 		} else {
 			log.Println("Le dossier mpv n'a pas été trouvé.")
+		}
+
+		if _, err := os.Stat(godotSourceDir); !os.IsNotExist(err) {
+			log.Println("Copie du dossier mpv et de ses dépendances...")
+			if err := copyDir(godotSourceDir, godotDestDir); err != nil {
+				log.Println("Erreur lors de la copie du dossier mpv:", err)
+				return
+			}
+			log.Println("Copie du dossier godot terminée.")
+		} else {
+			log.Println("Le dossier godot n'a pas été trouvé.")
 		}
 	}
 
