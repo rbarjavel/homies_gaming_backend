@@ -29,15 +29,15 @@ pub enum MediaType {
 
 pub struct MediaViewState {
     last_media: Option<MediaInfo>,
-    last_sound: Option<SoundInfo>,               // Add this line
-    viewed_by: HashMap<String, HashSet<IpAddr>>, // filename -> set of IPs that viewed it
+    last_sound: Option<SoundInfo>,
+    viewed_by: HashMap<String, HashSet<IpAddr>>,
 }
 
 impl MediaViewState {
     pub fn new() -> Self {
         Self {
             last_media: None,
-            last_sound: None, // Initialize sound field
+            last_sound: None,
             viewed_by: HashMap::new(),
         }
     }
@@ -51,9 +51,8 @@ impl MediaViewState {
         let viewed_set = self
             .viewed_by
             .entry(filename.to_string())
-            .or_default(); // Use or_default() instead of or_insert_with(HashSet::new)
+            .or_default();
         viewed_set.insert(ip)
-        // Returns true if IP was newly inserted (first view), false if already existed
     }
 
     pub fn get_last_media(&self) -> Option<&MediaInfo> {
@@ -69,7 +68,6 @@ impl MediaViewState {
 
     pub fn get_last_media_for_ip(&self, ip: IpAddr) -> Option<&MediaInfo> {
         if let Some(media) = &self.last_media {
-            // If IP hasn't viewed this media yet and it's not marked for deletion, return it
             if !self.has_been_viewed(&media.filename, ip) && !media.marked_for_deletion {
                 return Some(media);
             }
@@ -118,21 +116,19 @@ impl MediaViewState {
         self.last_sound.as_ref()
     }
 
-    // Update remove_file_from_state to handle sounds:
     pub fn remove_file_from_state(&mut self, filename: &str) {
-        // Remove from last_media if it matches
         if let Some(media) = &self.last_media {
             if media.filename == filename {
                 self.last_media = None;
             }
         }
-        // Remove from last_sound if it matches
+
         if let Some(sound) = &self.last_sound {
             if sound.filename == filename {
                 self.last_sound = None;
             }
         }
-        // Remove from viewed_by tracking
+
         self.viewed_by.remove(filename);
     }
 }
