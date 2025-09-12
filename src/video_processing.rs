@@ -280,8 +280,8 @@ impl VideoProcessor {
 
         let mut cmd = AsyncCommand::new("yt-dlp");
         cmd.args([
-            "--cookies-from-browser",
-            "firefox", // Use Firefox cookies for authentication
+            "--cookies",  // Use --cookies instead of --cookies-from-browser
+            "./firefox_cookies.txt", // Path to your cookies file
             "--dump-json",
             "--no-playlist",
             url,
